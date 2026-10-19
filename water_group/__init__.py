@@ -25,7 +25,9 @@ if _wg_str not in __path__:
     __path__.append(_wg_str)
 
 # Pre-import key submodules so they are available immediately
-for _mod_name in ("memory_engine", "bootstrap", "sync_groups", "sync_personas", "fwd"):
+__all__ = ["memory_engine", "bootstrap", "sync_groups", "sync_personas", "fwd"]
+
+for _mod_name in __all__:
     try:
         _mod = importlib.import_module(f"water_group.{_mod_name}")
         globals()[_mod_name] = _mod

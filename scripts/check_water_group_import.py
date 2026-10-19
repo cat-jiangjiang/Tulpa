@@ -36,6 +36,14 @@ def test_imports():
     import water_group.fwd as fwd
     assert fwd is not None
 
+    # 7. Test __all__ and clean namespace export
+    assert sorted(water_group.__all__) == sorted(["memory_engine", "bootstrap", "sync_groups", "sync_personas", "fwd"])
+    local_ns = {}
+    exec("from water_group import *", local_ns)
+    for expected in water_group.__all__:
+        assert expected in local_ns, f"{expected} must be exported by star import"
+    assert "sys" not in local_ns and "Path" not in local_ns, "Internal helper imports must not leak into star import"
+
     print("✓ All water_group import variations succeeded seamlessly!")
 
 
