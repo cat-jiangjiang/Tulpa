@@ -1,20 +1,21 @@
 """Test suite for Phase 5: plan_chat_reply rejection handling, KeyError: plan_id prevention, and stale replan."""
 from pathlib import Path
 import sys
-import tempfile
 from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'scripts'))
 
+from check_fixture_support import temp_dir
 from chatlocal.mcp_chat_turns import ChatTurns, TurnRejected
 from chatlocal.store import Store
 from chatlocal.mcp_access import MCPAccess
 
 
 def test_rejected_structure():
-    with tempfile.TemporaryDirectory(prefix="test-plan-rej-") as tmp:
-        store = Store(Path(tmp) / "chats.sqlite3")
+    with temp_dir(prefix='test-plan-rej-') as tmp:
+        store = Store(Path(tmp) / 'chats.sqlite3')
         access = MCPAccess(store)
         mock_chat = MagicMock()
         mock_chat.access = access

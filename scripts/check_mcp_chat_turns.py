@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).parent))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from check_fixture_support import isolated_env
+from check_fixture_support import isolated_env, network_guard, temp_dir
 from check_mcp_reactions import ReactionBot, Events, eventually, ROOT
 from chatlocal.store import Store
 from chatlocal.mcp_routes import install_mcp_routes
@@ -186,14 +186,11 @@ def main():
     events=Events();ReactionBot.sent=[];ReactionBot.writes=[];ReactionBot.history={};ReactionBot.intercept=None
     upstream=ThreadingHTTPServer(('127.0.0.1',0),ReactionBot)
     threading.Thread(target=upstream.serve_forever,daemon=True).start()
-    ports={events.port,upstream.server_port};connect=socket.create_connection;network=[]
-    def restrict(address,*args,**kwargs):
-        assert address[0] in ('localhost','127.0.0.1','::1') and address[1] in ports,address
-        network.append(address);return connect(address,*args,**kwargs)
+    ports={events.port,upstream.server_port};restrict,network=network_guard(ports)
     results=[];counter=0
     try:
-        with tempfile.TemporaryDirectory(prefix='tulpa-turns-') as tmp,patch.dict('os.environ',isolated_env(),clear=True),patch('socket.create_connection',restrict):
-            root=Path(tmp);store=Store(root/'chats.sqlite3')
+        with temp_dir(prefix='tulpa-turns-') as root,patch.dict('os.environ',isolated_env(),clear=True),patch('socket.create_connection',restrict):
+            store=Store(root/'chats.sqlite3')
             (root/'.env').write_text(f'REPLY_ONEBOT_URL=http://127.0.0.1:{upstream.server_port}\nREPLY_ONEBOT_WS_URL=ws://127.0.0.1:{events.port}\nREPLY_ONEBOT_WS_TOKEN=event-fixture\n','utf-8')
             with patch('chatlocal.onebot.ROOT',root),patch('chatlocal.message_sender.ROOT',root):
                 app=FastAPI();service=install_mcp_routes(app,store);access=service.access;tools=service.tools
