@@ -184,6 +184,7 @@ def main():
         persona_name = target_sess.get("persona")
         persona_preset = target_sess.get("persona_preset") or "yu_bao"
         mode = target_sess.get("trigger_mode", "mention_only")
+        reply_addressing = target_sess.get("reply_addressing", "quote")
         mention_only_bool = (mode == "mention_only")
 
         # 查找对应人设卡文件
@@ -210,6 +211,7 @@ def main():
         if persona_file:
             print(f"✓ 人设卡路径   : {persona_file.relative_to(ROOT_DIR)}")
         print(f"✓ 触发唤醒模式 : {mode} ({'仅被@或点名唤醒，大群防烧 Token' if mention_only_bool else '自然插话'})")
+        print(f"✓ 回复寻址模式 : {reply_addressing} ({'首个气泡带 quote: true 开启 QQ 原生引用回复，精准定位原话' if reply_addressing == 'quote' else '普通回复'})")
         print("------------------------------------------------------------------------")
         if persona_content:
             print("【已加载人设卡核心内容 - 主脑必须严格以此设定进行思考与发言】：")
@@ -227,6 +229,7 @@ def main():
         print(f"       \"mention_only\": {str(mention_only_bool).lower()}")
         print(f"     }}")
         print("  4. 动态小本本记忆已挂载：发言群友的精简画像会自动出现在 chat_guidance.member_dossiers 中；群友说“记在小本本上”会自动入库；随时可调用 query_member_dossier 查询群友档案与专属八卦；回复时多结合对方外号与历史黑料调侃！")
+        print("  5. QQ 原生引用回复：回复具体群友时，send_chat_reply 的首个文字气泡必须带上 \"quote\": true，自动开启 QQ 原生引用回复卡片精准定位原话！")
         print("------------------------------------------------------------------------")
         
         output_payload = {
@@ -237,6 +240,7 @@ def main():
             "persona_preset": persona_preset,
             "persona_file": str(persona_file.relative_to(ROOT_DIR)) if persona_file else None,
             "trigger_mode": mode,
+            "reply_addressing": reply_addressing,
             "next_call": {
                 "server": "tulpa",
                 "tool": "wait_chat_messages",

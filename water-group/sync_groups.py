@@ -93,6 +93,7 @@ def inspect_and_sync():
         persona = gcfg.get("persona") or config.get("default_persona", "little_whale")
         participation = gcfg.get("participation") or config.get("default_participation", "natural")
         trigger_mode = gcfg.get("trigger_mode") or config.get("default_trigger_mode", "mention_only")
+        reply_addressing = gcfg.get("reply_addressing") or config.get("default_reply_addressing", "quote")
 
         if cid in active_sessions:
             sess = active_sessions[cid]
@@ -124,7 +125,8 @@ def inspect_and_sync():
                 print(f"🔄 [热重载] 群 {gid} ({gname}) 已更新 -> 人格: {sess['persona_name']} ({persona}) | 模式: {trigger_mode}")
 
             mode_desc = "仅@触发" if trigger_mode == "mention_only" else "自然参与"
-            print(f"✓ [监听就绪] 群 {gid} ({gname}) | 模式: {mode_desc} | 人格: {sess['persona_name']} | Session: {sess['id']}")
+            addr_desc = "QQ原生引用" if reply_addressing == "quote" else ("定向@" if reply_addressing == "at" else "双重提醒" if reply_addressing == "both" else "自然")
+            print(f"✓ [监听就绪] 群 {gid} ({gname}) | 模式: {mode_desc} | 寻址: {addr_desc} | 人格: {sess['persona_name']} | Session: {sess['id']}")
             result["ready_groups"].append({
                 "group_id": gid,
                 "group_name": gname,
@@ -133,6 +135,7 @@ def inspect_and_sync():
                 "persona": sess["persona_name"],
                 "persona_preset": sess.get("persona_preset", persona),
                 "trigger_mode": trigger_mode,
+                "reply_addressing": reply_addressing,
                 "active": True
             })
         else:
@@ -143,7 +146,8 @@ def inspect_and_sync():
                 "conversation_id": cid,
                 "persona_preset": persona,
                 "participation": participation,
-                "trigger_mode": trigger_mode
+                "trigger_mode": trigger_mode,
+                "reply_addressing": reply_addressing
             })
 
     status_file = os.path.join(ROOT_DIR, "water-group", "status.json")

@@ -147,15 +147,20 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
      "intent": "<一句话简短意图，如：傲娇回应群友的点名>"
    }
    ```
-2. **Replyer (发送回复)**：
+2. **Replyer (发送回复与 QQ 原生引用)**：
    根据人设构思 1~2 条短碎片文字气泡（每条 1~10 字，拒绝 AI 味）。
+   - **【核心铁律：精准回复与 QQ 原生引用】**：
+     只要是回复特定群友发言（即 `plan_chat_reply` 中选定了 `target_event_id`），**首个文字气泡（index 0）必须带上 `"quote": true`**！
+     底层系统会自动将其封装为 QQ 原生引用回复段（`[reply:id]`），在群聊中生成半透明灰色原话卡片，且被回复群友的手机/桌面 QQ 会收到“有人回复了你”跳转提醒。
+     - **防刷屏铁律**：同一轮回复中**仅在首条气泡设置 `"quote": true`**，后续气泡严禁重复设置引用。
+     - **可选补充**：若需顺便提醒其他人（如提及某群友黑料时），可在首条气泡选填 `"mention_user_ids": ["<QQ号>"]`。日常回复只需 `"quote": true` 即可。
    - **调用 MCP 工具 `send_chat_reply`**：
    ```json
    {
      "session_id": "<session_id>",
      "plan_id": "<plan_id>",
      "bubbles": [
-       {"kind": "text", "text": "在呢"},
+       {"kind": "text", "text": "在呢", "quote": true},
        {"kind": "text", "text": "干嘛"}
      ],
      "expression_ids": []
@@ -163,14 +168,14 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
    ```
    - **Stale 纠错容错**：若返回 `error_code: "stale"`（代表原提问者在构思窗口内又有撤回或纠错更正），读取 `updated_chat` 中该提问者的最新修正意图，重新 plan 并发送。
 3. **回显并继续监听**：
-   打印简明回显：`> [水群] <群名> 回复 <群友昵称>：“<发送内容>”`
+   打印简明回显：`> [水群] <群名> 引用回复 <群友昵称>：“<发送内容>”`
    **随后立即回到第二步调用 `wait_chat_messages`**。
 
 ---
 
 ## 三、常用快捷控制与配置
 
-- **修改触发模式**：在 `water-group/config.json` 中，随时修改群的 `"trigger_mode": "mention_only"` 或 `"natural"`。
+- **修改触发模式与寻址**：在 `water-group/config.json` 中，随时修改群的 `"trigger_mode": "mention_only"` 或 `"natural"`，以及 `"reply_addressing": "quote"`（默认QQ原生引用）或 `"at"`（直接@本人）。
 - **查询群友小本本档案**：调用 `query_member_dossier(identifier="孩董", group_id="<群号>")` 检索成员外号、喜好、核心记忆与本群八卦。
 - **多群并发水群**：调用 `invoke_subagent` 为每个群分配独立 Worker Agent，各群互不阻塞。
 - **停止水群**：调用 `stop_chat_session(session_id=..., reason="用户主动停止")`。

@@ -15,7 +15,7 @@ def compact_wait(data,known_prompt_version=None):
     elif data.get('has_more'):hints.append('还有未读消息，先接着读再决定，不把一页当全部。')
     elif event=='reactions':hints.append('结合回应通知和目标原消息决定是否参与；自己的回声不接。')
     elif not active:hints.append('没有新消息时直接 next_call 继续等待，不提交空规划、不结束群聊。')
-    else:hints.append('先判断对谁说；plan_chat_reply 后直接 send_chat_reply，一并提交 expression_ids 与 bubbles。')
+    else:hints.append('先判断对谁说；plan_chat_reply 后直接 send_chat_reply，一并提交 expression_ids 与 bubbles。首条文字气泡带 "quote": true 开启 QQ 原生引用回复精准指向该群友。')
     if active and state.get('may_be_unfinished'):hints.append('最后一句可能没说完，先等短窗口听后续。')
     if active and state.get('consecutive_own_messages',0)>=2:hints.append('自己的话较密，先让别人接；被追问时仍可回应。')
     if state.get('image_events'):hints.append('先看图片与 materials 映射，按 materials.note 区分失败补读与客户端图片接入限制。')

@@ -6,6 +6,7 @@
   "default_persona": "little_whale",
   "default_participation": "natural",
   "default_trigger_mode": "mention_only",
+  "default_reply_addressing": "quote",
   "groups": {
     "123456789": {
       "name": "示例交流群",
