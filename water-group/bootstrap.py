@@ -40,7 +40,6 @@ def ensure_config():
             print(f"[Warn] 未找到配置文件模板: {CONFIG_EXAMPLE}")
 
 LOGS_DIR = ROOT_DIR / "water-group" / "logs"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 def get_python_exe():
     venv_py = ROOT_DIR / ".venv" / "Scripts" / "python.exe"
@@ -55,6 +54,7 @@ def start_process_detached(cmd, cwd=None, log_name=None):
     out_file = subprocess.DEVNULL
     err_file = subprocess.DEVNULL
     if log_name:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
         log_path = LOGS_DIR / log_name
         out_file = open(log_path, "a", encoding="utf-8")
         err_file = out_file
