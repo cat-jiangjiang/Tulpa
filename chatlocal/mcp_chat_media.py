@@ -32,6 +32,7 @@ import dns.query
 import dns.resolver
 
 from .mcp_actions import dump
+from .mcp_schemas import idempotency_key, session_id
 from .message_sender import SendError, SendUncertain
 from .onebot import OneBotError, OneBotUncertain
 from .mcp_sticker_library import StickerLibrary
@@ -52,9 +53,9 @@ CACHE_BYTES = 128 * 1024 * 1024
 def schemas(tool, scope):
     if not (scope.get('chat') and scope.get('send') and scope.get('chat_images')):
         return []
-    sid = dict(session_id=dict(type='string', minLength=32, maxLength=32))
+    sid = dict(session_id=session_id())
     asset = dict(**sid, sticker_id=dict(type='string', minLength=32, maxLength=32))
-    key = dict(idempotency_key=dict(type='string', minLength=8, maxLength=80))
+    key = dict(idempotency_key=idempotency_key())
     notes = dict(description=dict(type='string', maxLength=200),
                  tags=dict(type='array', maxItems=12, items=dict(type='string', maxLength=24)),
                  emotion=dict(type='string', maxLength=80), usage=dict(type='string', maxLength=160),

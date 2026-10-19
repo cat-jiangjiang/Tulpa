@@ -12,6 +12,7 @@ import time
 import uuid
 
 from .mcp_actions import dump
+from .mcp_schemas import SESSION_ID_DESCRIPTION, TURN_KEY_DESCRIPTION, event_id, idempotency_key, session_id
 
 TOOLS = {'plan_chat_reply', 'send_chat_reply'}
 DEFAULTS = dict(quiet_seconds=2., max_collect_seconds=8., reply_cooldown_seconds=3.,
@@ -31,9 +32,9 @@ class TurnRejected(ValueError):
 
 
 def schema(tool):
-    sid=dict(type='string',minLength=32,maxLength=32,description='原样复制工具返回的字符串；JSON 中必须带双引号。')
-    key=dict(type='string',minLength=8,maxLength=80,description='可省略，由程序按当前批次/计划生成稳定编号；重试不能换参数。')
-    event=dict(type='integer',minimum=1,maximum=2**63-1,description='来自所选 input_batch 的事件 id，不能使用旧批次或 QQ 消息编号。')
+    sid=session_id(SESSION_ID_DESCRIPTION)
+    key=idempotency_key(TURN_KEY_DESCRIPTION)
+    event=event_id('来自所选 input_batch 的事件 id，不能使用旧批次或 QQ 消息编号。')
     return [tool('plan_chat_reply',
         'Planner 阶段：根据 get/wait 返回的 input_batch.id 决定。target_event_id/topic_event_ids 都来自所选批次；reply 选非空 expressions，wait/silence 不带表达。'
         '程序核对相关消息静默与新鲜度；READY 返回候选，下一次直接 send_chat_reply 同时提交 expression_ids 和 bubbles，选择与表达合为一次决策。只写简短沟通意图，不发进群。',

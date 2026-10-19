@@ -15,6 +15,7 @@ import time
 import uuid
 
 from .mcp_actions import dump
+from .mcp_schemas import event_id, idempotency_key, session_id
 from .message_sender import QQSender, SendError
 from .onebot import OneBotError, OneBotUncertain
 
@@ -54,12 +55,12 @@ def schema(tool, catalog):
     return tool(TOOL, '对当前持续群聊中已读取的真实消息添加/撤销小表情回应。'
         '只使用 event_id 和以下目录 id，不传 QQ 原始编号或任意表情。'
         '成功即可继续等待，不必补发文字；UNKNOWN 禁止换编号重试。候选资料：'+dump(catalog),
-        dict(session_id=dict(type='string', minLength=32, maxLength=32),
+        dict(session_id=session_id(),
              plan_id=dict(type='string', minLength=32, maxLength=32, description='先规划取得 READY 计划。'),
-             event_id=dict(type='integer', minimum=1, maximum=2**63-1),
+             event_id=event_id(),
              reaction_id=dict(type='string', minLength=1, maxLength=48),
              operation=dict(type='string', enum=['add','remove']),
-             idempotency_key=dict(type='string', minLength=8, maxLength=80)),
+             idempotency_key=idempotency_key()),
         ['session_id','event_id','reaction_id','operation','idempotency_key'])
 
 

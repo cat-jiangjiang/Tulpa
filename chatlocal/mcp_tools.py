@@ -21,6 +21,7 @@ from .mcp_access import RateLimited
 from .mcp_chat import MCPChat, CHAT_TOOLS
 from .mcp_chat_media import MEDIA_TOOLS, MEDIA_WRITES, schemas as media_schemas
 from .mcp_reactions import TOOL as REACTION_TOOL, schema as reaction_schema, ChatReactions
+from .mcp_schemas import idempotency_key
 from .mcp_qq import TOOLS as QQ_TOOLS, WRITES as QQ_WRITES, schemas as qq_schemas
 from .mcp_qq_permissions import QQ_FLAGS
 from .retrieval import scope_sql
@@ -127,7 +128,7 @@ class MCPTools:
                 live['description'] = ('读取已授权 QQ 群的当前信息、成员、文件目录或入群申请，可用 view 以本工具枚举为准。先定位完整 conversation_id。当前状态不是历史快照，文件受日期限制。')
             if grant['scope'].get('onebot'):
                 rows += [copy.deepcopy(s) for s in SCHEMAS if s['name'] == 'get_group_knowledge']
-            common = dict(conversation_id=dict(type='string',maxLength=120), idempotency_key=dict(type='string',minLength=8,maxLength=80,description='本次操作的稳定唯一编号；同一次重试沿用，不能换编号重发。'))
+            common = dict(conversation_id=dict(type='string',maxLength=120), idempotency_key=idempotency_key('本次操作的稳定唯一编号；同一次重试沿用，不能换编号重发。'))
             if grant['scope'].get('send'):
                 rows.append(tool('send_qq_message','按用户在界面授予的持续权限立即发送 QQ 纯文本，无需逐次审批。先核对真实会话，仅执行当前用户明确要求；同一次调用重试沿用幂等编号。',
                     dict(**common,text=dict(type='string',minLength=1,maxLength=4000)),['conversation_id','idempotency_key','text']))

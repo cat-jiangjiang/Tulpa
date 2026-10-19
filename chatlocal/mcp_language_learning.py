@@ -7,12 +7,13 @@ import time
 import uuid
 
 from .mcp_language_store import LanguageStore, LearningError
+from .mcp_schemas import session_id
 
 TOOLS={'get_chat_learning','claim_chat_learning','submit_chat_learning','select_chat_expressions'}
 
 
 def schemas(tool):
-    sid=dict(type='string',minLength=32,maxLength=32)
+    sid=session_id()
     common=dict(session_id=sid)
     return [
         tool('get_chat_learning','读取指定账号与群的本地表达、黑话库。session_id 或 conversation_id 二选一；'

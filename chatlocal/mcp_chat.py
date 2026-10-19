@@ -14,6 +14,7 @@ import uuid
 
 from .mcp_access import AccessDenied
 from .mcp_chat_hints import DOSSIER_REMINDER
+from .mcp_schemas import SESSION_ID_DESCRIPTION, event_id, idempotency_key, session_id
 from .onebot_events import EventReceiver
 from .onebot_segments import at as at_segment, message_id, qq as qq_id, reply as reply_segment
 from . import mcp_chat_prompts as prompts
@@ -61,8 +62,8 @@ Tulpa 只保存会话和等待消息，不调用内置模型、不替外部客�
 
 
 def schemas(tool):
-    sid = dict(session_id=dict(type='string', minLength=32, maxLength=32,description='原样复制返回的字符串；JSON 中必须加双引号。'))
-    key = dict(idempotency_key=dict(type='string', minLength=8, maxLength=80))
+    sid = dict(session_id=session_id(SESSION_ID_DESCRIPTION))
+    key = dict(idempotency_key=idempotency_key())
     rows = [
         tool('list_chat_personas', '实时扫描持续群聊人格目录，返回当前可用人格数量 count、名称、id、全文及读取问题。每次新开群聊前调用，文件新增、修改、删除立即生效，无需重启。将选中的 id 传给 start_chat_session.persona_preset；不会开启聊天。', {}, []),
         tool('list_chat_groups', '从 OneBot 列出当前连接允许持续聊天的 QQ 群，返回准确 conversation_id；无需导入历史聊天。',
@@ -97,7 +98,7 @@ def schemas(tool):
                   followup_seconds=dict(type='number', minimum=5, maximum=180, default=60, description='被 @ 唤醒后保持活跃对话窗口的最长静默超时秒数，默认 60 秒。超过此时间未有人继续说话则自动休眠。')), ['session_id']),
         tool('send_chat_message', '在持续群聊中发言，默认普通文本。可分别指定回应事件、显示原生引用和原生 @；近距离且对象明确时不挂标记，话题交错时按需引用，确需点名才 @。分成多条通常仅首条挂标记，后续省略。每次核对授权、目标、停止状态和幂等编号；已授权后直接发送。',
              dict(**sid, **key, text=dict(type='string', minLength=1, maxLength=4000, description='实际正文，CQ 样式文字保持普通文本，不要手写 CQ 或 @昵称冒充消息段。'),
-                  reply_to_event_id=dict(type='integer', minimum=1, maximum=2**63-1, description='get_chat_session.context / wait_chat_messages.messages 中已读取消息的 id；不是 M 编号、onebot_message_id 或 read_through_id。仅选择回应目标，默认不显示引用。'),
+                  reply_to_event_id=event_id('get_chat_session.context / wait_chat_messages.messages 中已读取消息的 id；不是 M 编号、onebot_message_id 或 read_through_id。仅选择回应目标，默认不显示引用。'),
                   quote=dict(type='boolean', default=False, description='需要消除指代歧义时才设 true，且必须指定 reply_to_event_id；不会自动 @ 原作者。'),
                   mention_user_ids=dict(type='array', maxItems=5, uniqueItems=True, default=[],
                                         items=dict(type='string', pattern='^[1-9][0-9]{0,19}$'),

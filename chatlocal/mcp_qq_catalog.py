@@ -1,4 +1,7 @@
 """Typed, deliberately finite SL API surface. No arbitrary API/path pass-through."""
+from .mcp_schemas import idempotency_key
+
+
 def string(limit=200, minimum=0, **kwargs):
     return dict(type='string', minLength=minimum, maxLength=limit, **kwargs)
 
@@ -13,7 +16,7 @@ ID = string(512, 1)
 ASSET = string(32, 32, pattern='^[a-f0-9]{32}$')
 MID = integer(-(2**31), 2**31-1)
 CID = string(120, 1, pattern='^[1-9][0-9]*:(group|direct):[1-9][0-9]*$')
-KEY = string(80, 8)
+KEY = idempotency_key()
 TEXT = string(4000, 1)
 
 
