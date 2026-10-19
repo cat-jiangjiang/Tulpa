@@ -817,14 +817,19 @@ class MemoryEngine:
 
         updated = []
         for m in messages:
-            if m.get("is_self") or m.get("synthetic"):
+            if not isinstance(m, dict) or m.get("is_self") or m.get("synthetic"):
                 continue
-            sender_id = str(m.get("sender_id", "")).strip()
+            sender_id = str(m.get("sender_id") or m.get("user_id") or "").strip()
             if not sender_id or sender_id == "0":
                 continue
 
-            sender_name = str(m.get("sender", "")).strip()
-            text = str(m.get("content", "")).strip()
+            sender_name = str(
+                m.get("sender_name")
+                or m.get("nickname")
+                or (m.get("sender", {}).get("nickname") if isinstance(m.get("sender"), dict) else m.get("sender"))
+                or ""
+            ).strip()
+            text = str(m.get("content") or m.get("text") or m.get("message") or "").strip()
             if not text:
                 continue
 
@@ -1024,6 +1029,22 @@ class MemoryEngine:
             "reply_hint": f"调侃建议：可称呼其外号（{'/'.join(aliases[:3])}），根据其XP喜好（{'/'.join(interests[:3])}）自然插话，偶尔可用'我小本本上可记着...'翻黑料调侃。",
         }
 
+    @staticmethod
+    def _normalize_list(val):
+        """Normalizes string or list/iterable inputs into a deduplicated list of non-empty strings."""
+        if val is None:
+            return None
+        if isinstance(val, str):
+            val = [val]
+        elif not isinstance(val, (list, tuple, set)):
+            val = [str(val)]
+        res = []
+        for item in val:
+            s = str(item).strip()
+            if s and s not in res:
+                res.append(s)
+        return res
+
     def update_member_dossier(
         self,
         identifier,
@@ -1041,11 +1062,16 @@ class MemoryEngine:
         Allows external agents to natively update a member's dossier (key memories,
         traits, aliases, roles, interests, tone style) without touching raw SQLite.
         """
-        if not identifier:
+        if not identifier or not str(identifier).strip():
             return {"success": False, "error": "identifier_required", "note": "必须提供群友标识（QQ号、昵称、名片或既有外号）。"}
 
         ident_str = str(identifier).strip()
         prof = self.find_profile(ident_str)
+
+        norm_aliases = self._normalize_list(aliases)
+        norm_interests = self._normalize_list(interests)
+        norm_memories = self._normalize_list(key_memories)
+        norm_traits = dict(traits) if isinstance(traits, dict) else ({} if traits is not None else None)
 
         now = time.time()
         with self.lock, self._connect() as conn:
@@ -1059,18 +1085,17 @@ class MemoryEngine:
                 cur_memories = json.loads(prof["key_memories"] or "[]")
 
                 if overwrite:
-                    new_aliases = list(dict.fromkeys(aliases or cur_aliases))
-                    new_interests = list(dict.fromkeys(interests or cur_interests))
-                    new_traits = dict(traits) if traits is not None else cur_traits
-                    new_memories = list(dict.fromkeys(key_memories or cur_memories))[:10]
-                    new_tone = tone_style if tone_style is not None else prof["tone_style"]
+                    new_aliases = norm_aliases if norm_aliases is not None else cur_aliases
+                    new_interests = norm_interests if norm_interests is not None else cur_interests
+                    new_traits = norm_traits if norm_traits is not None else cur_traits
+                    new_memories = (norm_memories if norm_memories is not None else cur_memories)[:10]
+                    new_tone = tone_style.strip() if (tone_style is not None and str(tone_style).strip()) else (prof["tone_style"] if tone_style is None else "")
                 else:
-                    new_aliases = list(dict.fromkeys(cur_aliases + (aliases or [])))
-                    new_interests = list(dict.fromkeys(cur_interests + (interests or [])))
-                    new_traits = {**cur_traits, **(traits or {})}
-                    incoming_memories = [key_memories] if isinstance(key_memories, str) else (key_memories or [])
-                    new_memories = list(dict.fromkeys(cur_memories + incoming_memories))[:10]
-                    new_tone = tone_style.strip() if (tone_style and tone_style.strip()) else prof["tone_style"]
+                    new_aliases = list(dict.fromkeys(cur_aliases + (norm_aliases or [])))
+                    new_interests = list(dict.fromkeys(cur_interests + (norm_interests or [])))
+                    new_traits = {**cur_traits, **(norm_traits or {})}
+                    new_memories = list(dict.fromkeys(cur_memories + (norm_memories or [])))[:10]
+                    new_tone = tone_style.strip() if (tone_style and str(tone_style).strip()) else prof["tone_style"]
 
                 if role:
                     new_traits["role"] = str(role).strip()
@@ -1098,14 +1123,13 @@ class MemoryEngine:
             else:
                 uid = ident_str
                 p_name = primary_name.strip() if (primary_name and primary_name.strip()) else ident_str
-                new_aliases = list(dict.fromkeys([p_name, ident_str] + (aliases or [])))
-                new_interests = list(dict.fromkeys(interests or []))
-                new_traits = dict(traits or {})
+                new_aliases = list(dict.fromkeys([p_name, ident_str] + (norm_aliases or [])))
+                new_interests = list(dict.fromkeys(norm_interests or []))
+                new_traits = dict(norm_traits or {})
                 if role:
                     new_traits["role"] = str(role).strip()
-                incoming_memories = [key_memories] if isinstance(key_memories, str) else (key_memories or [])
-                new_memories = list(dict.fromkeys(incoming_memories))[:10]
-                new_tone = tone_style.strip() if (tone_style and tone_style.strip()) else "普通群友"
+                new_memories = (norm_memories or [])[:10]
+                new_tone = tone_style.strip() if (tone_style and str(tone_style).strip()) else "普通群友"
 
                 conn.execute(
                     """
@@ -1183,10 +1207,11 @@ class MemoryEngine:
                 if res.get("success"):
                     updated_profiles.append(res["primary_name"])
                     ev = rec.get("event")
-                    if isinstance(ev, dict) and gid:
+                    ev_gid = str(ev.get("group_id") or gid).strip() if isinstance(ev, dict) else ""
+                    if isinstance(ev, dict) and ev_gid:
                         self.record_event(
                             user_id=res["user_id"],
-                            group_id=gid,
+                            group_id=ev_gid,
                             quote=ev.get("quote", ""),
                             context=ev.get("context", ""),
                             source=ev.get("source", "consolidation"),
@@ -1195,18 +1220,21 @@ class MemoryEngine:
                         recorded_events_count += 1
 
         # 2. Process independent events
-        if events and isinstance(events, list) and gid:
+        if events and isinstance(events, list):
             for ev in events:
                 if not isinstance(ev, dict):
                     continue
                 ident = ev.get("identifier") or ev.get("user_id")
                 if not ident:
                     continue
+                ev_gid = str(ev.get("group_id") or gid).strip()
+                if not ev_gid:
+                    continue
                 prof = self.find_profile(ident)
                 uid = prof["user_id"] if prof else str(ident).strip()
                 self.record_event(
                     user_id=uid,
-                    group_id=gid,
+                    group_id=ev_gid,
                     quote=ev.get("quote", ""),
                     context=ev.get("context", ""),
                     source=ev.get("source", "consolidation"),

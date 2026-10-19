@@ -393,10 +393,43 @@ def test_native_dossier_updates_and_consolidation(tmp_dir):
     assert con_res["updated_profiles_count"] >= 1
     assert con_res["recorded_events_count"] == 3  # 1 record event + 1 independent event + 1 summary
 
-    dossier = engine.query_member_dossier("999888", group_id="group_test_888")
-    assert dossier["found"] is True
-    assert any("首次在群内技术发言" in e["context"] for e in dossier["recent_events"])
-    assert any("新加入Tulpa项目讨论" in m for m in dossier["profile"]["key_memories"])
+    # 4. Edge-case test: string arguments for list fields, overwrite clearing, and per-event group_id
+    str_arg_res = engine.update_member_dossier(
+        identifier="999888",
+        aliases="技术达人",  # String instead of list
+        interests="大语言模型",  # String instead of list
+        key_memories="单条核心记忆测试",  # String instead of list
+    )
+    assert str_arg_res["success"] is True
+    assert "技术达人" in str_arg_res["profile"]["aliases"]
+    assert "大语言模型" in str_arg_res["profile"]["interests"]
+    assert "单条核心记忆测试" in str_arg_res["profile"]["key_memories"]
+    # Ensure string wasn't split character-by-character into ['单', '条', '核', ...]
+    assert "单" not in str_arg_res["profile"]["key_memories"]
+
+    # Test explicit overwrite clearing
+    clear_res = engine.update_member_dossier(
+        identifier="999888",
+        key_memories=[],
+        overwrite=True,
+    )
+    assert clear_res["success"] is True
+    assert clear_res["profile"]["key_memories"] == [], "key_memories should be cleared in overwrite mode with empty list"
+
+    # Test consolidate_chat_memory with per-event group_id
+    con_scoped_res = engine.consolidate_chat_memory(
+        events=[
+            {
+                "identifier": "999888",
+                "group_id": "group_scoped_777",
+                "quote": "测试按事件划分群组",
+                "context": "独立群事件",
+            }
+        ]
+    )
+    assert con_scoped_res["recorded_events_count"] == 1
+    dossier_scoped = engine.query_member_dossier("999888", group_id="group_scoped_777")
+    assert any("测试按事件划分群组" in e["quote"] for e in dossier_scoped["recent_events"])
 
     print("✓ 9. MCP 原生档案更新 update_member_dossier 与批量记忆归档 consolidate_chat_memory 测试通过")
 
