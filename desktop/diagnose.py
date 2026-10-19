@@ -7,7 +7,6 @@ import argparse
 import ctypes
 from ctypes import wintypes
 from datetime import datetime,timezone
-import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler,HTTPServer
 import ipaddress
@@ -25,6 +24,8 @@ import tempfile
 import time
 
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT))
+from chatlocal.file_hash import sha256
 
 
 def client_processes():
@@ -167,7 +168,7 @@ def collect(root=ROOT):
                  'scripts/qq_labels.py','chatlocal/qq_labels.py',
                  '_internal/qq-live-lock.dll'):
         path=root/name
-        report['components'][name]=hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+        report['components'][name]=sha256(path) if path.is_file() else None
     helper=root/'tools/qq-reader/chatlog_keeper/_qq_sqlite_helper.py'
     dedicated=root/'runtime/qq-sqlite/python.exe'
     executable=dedicated if dedicated.is_file() else Path(sys.executable)

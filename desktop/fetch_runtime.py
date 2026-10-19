@@ -1,11 +1,13 @@
 """Download pinned official Windows runtime components into the ignored cache."""
 import concurrent.futures
-import hashlib
 import json
 from pathlib import Path
+import sys
 import urllib.request
 
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT))
+from chatlocal.file_hash import sha256
 CACHE=ROOT/'.cache/desktop-downloads'
 ASSETS={
     'FFmpeg-b08d7969c5-source.tar.gz':'https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/b08d7969c5',
@@ -23,7 +25,7 @@ def fetch(item):
         with urllib.request.urlopen(url,timeout=60) as src,partial.open('wb') as dst:
             while block:=src.read(1024*1024):dst.write(block)
         partial.replace(path)
-    digest=hashlib.file_digest(path.open('rb'),'sha256').hexdigest()
+    digest=sha256(path)
     print(f'{name}: {path.stat().st_size:,} bytes; SHA256 {digest}',flush=True)
     return dict(name=name,url=url,bytes=path.stat().st_size,sha256=digest)
 

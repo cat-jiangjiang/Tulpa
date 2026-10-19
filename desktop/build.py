@@ -4,7 +4,6 @@ No secrets/databases are copied. ZIP entries come exclusively from this build's
 allowlist, never from recursively archiving a folder that someone has used.
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +15,7 @@ import zipfile
 ROOT=Path(__file__).resolve().parents[1]
 CACHE=ROOT/'.cache/desktop-downloads'
 sys.path.insert(0,str(ROOT))
+from chatlocal.file_hash import sha256
 from chatlocal.version import VERSION
 HASHES={
  'FFmpeg-b08d7969c5-source.tar.gz':'6f371d1ec52041a0d5a72bb2273cf1a49ed14768d1d1ef33b769478bfdf60924',
@@ -27,7 +27,7 @@ HASHES={
 }
 
 def digest(path):
-    with path.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
+    return sha256(path)
 
 def build_icon():
     """Export the supplied brand image at Windows icon sizes without stretching it."""

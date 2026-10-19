@@ -1,18 +1,20 @@
 """Build a CRT-free x64 extension from pinned public-domain SQLite headers."""
-import hashlib
 import os
 from pathlib import Path
 import subprocess
+import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from chatlocal.file_hash import sha256
 HEADER_ARCHIVE = 'sqlite-amalgamation-3530400.zip'
 HEADER_SHA256 = '1e71ddf93849c6a6ecf58b827c0692073d2dd7ee40196158068f7b29f422e87d'
 
 
 def build():
     archive = ROOT / '.cache/desktop-downloads' / HEADER_ARCHIVE
-    if hashlib.sha256(archive.read_bytes()).hexdigest() != HEADER_SHA256:
+    if sha256(archive) != HEADER_SHA256:
         raise RuntimeError('SQLite header checksum mismatch')
     out = ROOT / 'build/qq-live'
     out.mkdir(parents=True, exist_ok=True)

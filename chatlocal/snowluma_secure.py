@@ -1,6 +1,5 @@
 """Small local primitives for the owned SnowLuma runtime. No secret diagnostics."""
 import ctypes
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,16 +10,13 @@ import time
 from contextlib import contextmanager
 from weakref import WeakValueDictionary
 
+from .file_hash import sha256
+
 
 class ManagedError(ValueError):
     def __init__(self, code, message, *, retryable=False):
         super().__init__(message)
         self.code, self.retryable = code, retryable
-
-
-def sha256(path):
-    with Path(path).open('rb') as f:
-        return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
 def local_path(path):
