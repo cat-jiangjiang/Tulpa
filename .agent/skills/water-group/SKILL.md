@@ -29,7 +29,55 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 
 ---
 
-## 二、标准化执行流程 (SOP)
+## 二、从零开始冷启动指南 (Zero-to-Hero Setup)
+
+如果是首次部署或全新拉取仓库，需按以下 5 步完成冷启动：
+
+### 1. 启动 NapCat (OneBot v11) 并扫码登录
+- 启动无头 NapCat 进程（如运行 `tools/napcat-shell/launcher-user.bat` 或 Docker 容器）。
+- 确认 OneBot 配置：
+  - HTTP 接口：`http://127.0.0.1:43000`
+  - 正向 WebSocket：`ws://127.0.0.1:43001`
+  - Access Token：需与 Tulpa 及 `config.json` 一致（如 `tulpa_token_secret_123`）。
+- 浏览器打开 NapCat WebUI（如 `http://127.0.0.1:46099`），扫描二维码登录机器人 QQ 小号。
+
+### 2. 初始化群配置文件 (`config.json`)
+- 从模板复制一份真实配置文件（该文件已被 gitignore 隔离，绝不会泄露）：
+  ```bash
+  cp water-group/config.example.json water-group/config.json
+  ```
+- 打开 `water-group/config.json` 填写：
+  - `self_account`: 机器人 QQ 小号。
+  - `self_names`: 自定义专属唤醒词列表（如 `["小鲸鱼", "鲸鱼"]`，群友发文字点名这些词可无 @ 唤醒）。
+  - `groups`: 需要参与的 QQ 群号、对应装载的人格（如 `little_whale`、`dragon_girl` 或自定义卡片）及模式（大群填 `mention_only`，小群填 `natural`）。
+
+### 3. 启动 Tulpa 主服务与端口转发
+- 启动 Tulpa 核心进程：
+  ```bash
+  uv run python app.py
+  ```
+  *(默认 WebUI 监听 `47860`，MCP 监听 `48777`)*。
+- （可选端口兼容）：若本地 MCP 客户端写死了默认端口 `18777`，在后台启动端口转发：
+  ```bash
+  uv run python .tmp/fwd.py
+  ```
+- 访问 Tulpa WebUI (`http://127.0.0.1:47860`) -> MCP 授权页面，生成授权 Token，并在 Antigravity / IDE 的 MCP 设置中绑定 `tulpa` 服务。
+
+### 4. 同步角色卡与群会话
+- 在 `water-group/personas/` 目录下放置你的人格卡 Markdown（如直接使用自带的 `little_whale.md` 或自定义卡片）。
+- 运行同步脚本：
+  ```bash
+  uv run python water-group/sync_groups.py
+  ```
+- 该脚本会自动将角色卡同步至内核库，并检查 OneBot 群列表自动热重载或预备 Session。
+
+### 5. 唤醒 Antigravity 开始挂机水群
+- 完成上述 4 步后，在 Antigravity 对话中直接说：“**开始水群**”或“**挂机水群**”。
+- Agent 自动接管并进入下方 SOP 挂机循环。
+
+---
+
+## 三、标准化执行流程 (SOP)
 
 ### 第一步：群同步与状态载入 (Multi-Group Sync)
 
