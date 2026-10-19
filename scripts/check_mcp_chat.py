@@ -1,7 +1,6 @@
 """Persistent chat acceptance: real MCP HTTP + isolated OneBot, never real QQ."""
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import shutil
@@ -21,6 +20,7 @@ ssl.create_default_context()
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from check_fixture_support import isolated_env
+from fixture_server import FixtureHandler,fixture_server
 ROOT=Path(sys.argv[sys.argv.index('--package')+1]).resolve() if '--package' in sys.argv else Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from fastapi import FastAPI
@@ -35,15 +35,14 @@ from chatlocal import mcp_chat_prompts as prompts
 from chatlocal.onebot import invalidate_availability
 
 
-class OneBot(BaseHTTPRequestHandler):
+class OneBot(FixtureHandler):
     sent=[]
     block=False
     uncertain=False
     entered=threading.Event()
     release=threading.Event()
-    def log_message(self,*args):pass
     def do_POST(self):
-        body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        body=self.read_json()
         action=self.path[1:]
         if action=='get_login_info':data={'user_id':111}
         elif action=='get_group_list':data=[{'group_id':g,'group_name':'Fixture group '+str(g)} for g in range(222,231)]
@@ -55,8 +54,7 @@ class OneBot(BaseHTTPRequestHandler):
             if self.uncertain:self.send_response(503);self.end_headers();return
             data={'message_id':700+len(self.sent)}
         else:raise AssertionError(action)
-        raw=json.dumps({'status':'ok','retcode':0,'data':data}).encode()
-        self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+        self.send_json({'status':'ok','retcode':0,'data':data})
 
 
 class Events:
@@ -172,10 +170,8 @@ async def hot_personas_protocol(service, token, directory):
 def main():
     (ROOT/'.tmp').mkdir(exist_ok=True)
     events=Events()
-    upstream=ThreadingHTTPServer(('127.0.0.1',0),OneBot)
-    threading.Thread(target=upstream.serve_forever,daemon=True).start()
     try:
-        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='mcp-chat-') as tmp,patch.dict('os.environ',isolated_env(),clear=True):
+        with fixture_server(OneBot) as upstream,tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='mcp-chat-') as tmp,patch.dict('os.environ',isolated_env(),clear=True):
             folder=Path(tmp);store=Store(folder/'chats.sqlite3');serial=0
             persona_dir=folder/'personas';persona_dir.mkdir()
             for name in ('little_whale.md','little_whale.source.json','behavior.md'):
@@ -399,7 +395,7 @@ def main():
                                         await client.call_tool('stop_chat_session',dict(session_id=sid2))
                         asyncio.run(live_only_http())
     finally:
-        OneBot.release.set();events.close();upstream.shutdown();upstream.server_close();invalidate_availability()
+        OneBot.release.set();events.close();invalidate_availability()
     print('PASS: hot persona discovery over one MCP connection, immutable snapshots after edit/deletion, external-only indefinite sessions, real MCP HTTP, isolated OneBot sends, 6 independent waits + ordinary tools, WebSocket push/dedupe/reconnect/native-reader independence/pagination/restart/ack, idempotency/UNKNOWN, stop race/revoke/UI origin. No real QQ sends or internal model calls.')
 
 

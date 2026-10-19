@@ -8,13 +8,13 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from fastapi.testclient import TestClient
 from chatlocal.linux_distribution import source_files
 from chatlocal.linux_service import service_name, unit_text
@@ -158,20 +158,16 @@ class InstancesTests(unittest.TestCase):
         with self.assertRaises(TerminalError) as error: wrong.get('/overview')
         self.assertEqual(error.exception.status_code, 401)
         for account, client in zip(('111', '222'), clients):
-            class SL(BaseHTTPRequestHandler):
+            class SL(FixtureHandler):
                 own_account = account
-                def log_message(self, *args): pass
                 def do_POST(self):
                     self.rfile.read(int(self.headers.get('Content-Length', '0')))
                     data = dict(user_id=int(self.own_account)) if self.path == '/get_login_info' else [dict(group_id=555, group_name='fixture')]
-                    raw = json.dumps(dict(status='ok', retcode=0, data=data)).encode()
-                    self.send_response(200); self.send_header('Content-Length', str(len(raw))); self.end_headers(); self.wfile.write(raw)
-            server = ThreadingHTTPServer(('127.0.0.1', 0), SL)
-            thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-            self.cleanups.append(lambda s=server: (s.shutdown(), s.server_close()))
-            client.put('/sl', dict(http_url=f'http://127.0.0.1:{server.server_port}',
-                                  ws_url=f'ws://127.0.0.1:{server.server_port}', http_token='fake-token', ws_token='fake-ws'))
-            self.assertEqual(client.get('/groups')['items'][0]['account'], account)
+                    self.send_json(dict(status='ok', retcode=0, data=data))
+            with fixture_server(SL) as server:
+                client.put('/sl', dict(http_url=f'http://127.0.0.1:{server.server_port}',
+                                      ws_url=f'ws://127.0.0.1:{server.server_port}', http_token='fake-token', ws_token='fake-ws'))
+                self.assertEqual(client.get('/groups')['items'][0]['account'], account)
         target = Path(descriptors[0]['root'])
         (target / 'imports/messages.json').write_text(json.dumps([dict(platform='qq', conversation_id='course',
             conversation='课程群', sender='老师', sender_id='teacher', source_id='isolation', timestamp='2026-10-02',

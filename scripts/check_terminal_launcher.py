@@ -7,14 +7,14 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.terminal_client import TerminalClient, TerminalError
 from chatlocal.terminal_launcher import ensure_backend, installed_service, stop_backend
 
@@ -132,9 +132,7 @@ with patch('chatlocal.tui.run',side_effect=ui) as opened:
 
     def test_foreign_port_receives_no_credential_and_is_not_replaced(self):
         requests = []
-        class OtherService(BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
+        class OtherService(FixtureHandler):
             def do_GET(self):
                 requests.append((self.path, self.headers.get('Authorization')))
                 raw = b'{"product":"some other app"}'
@@ -142,19 +140,12 @@ with patch('chatlocal.tui.run',side_effect=ui) as opened:
                 self.send_header('Content-Length', str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
-        server = ThreadingHTTPServer(('127.0.0.1', self.port), OtherService)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
+        with fixture_server(OtherService, port=self.port) as server:
             result = self.command('start')
             self.assertEqual(result.returncode, 1)
             self.assertIn('其他服务占用', result.stderr)
             self.assertFalse(self.token.exists())
             self.assertEqual(requests, [('/health', None)])
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(3)
 
     def test_wrong_token_does_not_restart_existing_backend(self):
         self.success('start')

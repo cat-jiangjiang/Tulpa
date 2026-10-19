@@ -3,7 +3,6 @@ import asyncio
 import base64
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import os
@@ -20,6 +19,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from check_fixture_support import isolated_env
 from check_mcp_chat import Events, eventually, ROOT
 from check_mcp_chat_media import fixture_image
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.mcp_qq_permissions import QQ_FLAGS
 from chatlocal.mcp_qq_catalog import WRITE_APIS, CATALOG
 from chatlocal.mcp_qq_media import attachment_ref, MAX_BYTES, decode
@@ -40,11 +40,10 @@ def audio():
     return out.getvalue()
 
 
-class Bot(BaseHTTPRequestHandler):
+class Bot(FixtureHandler):
     calls=[];writes=[];history={};account=111;role='owner';uncertain=False;intercept=None
-    def log_message(self,*args):pass
     def do_POST(self):
-        args=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        args=self.read_json()
         action=self.path[1:];type(self).calls.append((action,deepcopy(args)))
         if type(self).intercept:type(self).intercept(action,args)
         if action=='get_login_info':data={'user_id':self.account}
@@ -75,8 +74,7 @@ class Bot(BaseHTTPRequestHandler):
             data={'message_id':70000+len(self.writes)} if action in ('send_group_msg','send_private_msg','send_group_ai_record','forward_group_single_msg','forward_friend_single_msg','send_group_forward_msg','send_private_forward_msg') else {'file_id':'uploaded'} if action in ('upload_group_file','upload_private_file') else {'tid':'tid-new'} if action=='send_qzone_msg' else None
         else:
             self.send_error(404);return
-        raw=json.dumps(dict(status='ok',retcode=0,data=data)).encode()
-        self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+        self.send_json(dict(status='ok',retcode=0,data=data))
 
 
 async def wire(service, grant, denied, raw):
@@ -168,10 +166,9 @@ async def private_materials(service, grant, sid, group_sid):
 
 
 def main():
-    events=Events();upstream=ThreadingHTTPServer(('127.0.0.1',0),Bot)
-    threading.Thread(target=upstream.serve_forever,daemon=True).start();checks=[]
+    events=Events();checks=[]
     try:
-        with tempfile.TemporaryDirectory(prefix='tulpa-sl-extensions-') as tmp,patch.dict('os.environ',isolated_env(),clear=True):
+        with fixture_server(Bot) as upstream,tempfile.TemporaryDirectory(prefix='tulpa-sl-extensions-') as tmp,patch.dict('os.environ',isolated_env(),clear=True):
             root=Path(tmp)
             (root/'.env').write_text(f'REPLY_ONEBOT_URL=http://127.0.0.1:{upstream.server_port}\nREPLY_ONEBOT_WS_URL=ws://127.0.0.1:{events.port}\nREPLY_ONEBOT_WS_TOKEN=event-fixture\n')
             with patch('chatlocal.onebot.ROOT',root),patch('chatlocal.message_sender.ROOT',root):
@@ -425,7 +422,7 @@ def main():
                     with access.connect() as db:
                         assert not db.execute('SELECT 1 FROM qq_friend_requests WHERE user_id=?',('557',)).fetchone()
                     checks.append('friend requests ignored after revocation, outside grant dates and while MCP is disabled')
-    finally:upstream.shutdown();upstream.server_close();events.close()
+    finally:events.close()
     print(json.dumps(dict(status='passed',checks=checks,fixture_writes=len(Bot.writes),real_qq_writes=0),ensure_ascii=False))
 
 

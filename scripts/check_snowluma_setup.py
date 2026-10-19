@@ -4,7 +4,6 @@ import sys
 import socket
 import tempfile
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,6 +12,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from check_fixture_support import isolated_env
+from fixture_server import FixtureHandler,fixture_server
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from websockets.sync.server import serve
@@ -24,19 +24,17 @@ from chatlocal.store import Store
 from chatlocal.mcp_access import MCPAccess
 
 
-class HTTP(BaseHTTPRequestHandler):
+class HTTP(FixtureHandler):
     account='12345'
     token='fixture-http-secret'
     error=0
     actions=[]
-    def log_message(self,*args):pass
     def do_POST(self):
         HTTP.actions.append(self.path)
         self.rfile.read(int(self.headers.get('Content-Length','0')))
         status=self.error or (401 if self.headers.get('Authorization','') != ('Bearer '+self.token if self.token else '') else 200)
         if self.path!='/custom/api/get_login_info':status=404
-        raw=json.dumps(dict(status='ok',retcode=0,data=dict(user_id=self.account))).encode()
-        self.send_response(status);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+        self.send_json(dict(status='ok',retcode=0,data=dict(user_id=self.account)),status)
 
 
 class Events:
@@ -66,10 +64,9 @@ def write(path,value):
 
 
 def main():
-    http=ThreadingHTTPServer(('127.0.0.1',0),HTTP)
-    thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start();events=Events()
+    events=Events()
     try:
-        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='snow-setup-') as name,patch.dict('os.environ',isolated_env(),clear=True):
+        with fixture_server(HTTP) as http,tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='snow-setup-') as name,patch.dict('os.environ',isolated_env(),clear=True):
             root=Path(name);snow=root/'SnowLuma';product=root/'Tulpa';product.mkdir();snow.mkdir()
             write(snow/'package.json',dict(name='@snowluma/runtime',version='1.14.20'));(snow/'index.mjs').write_text('// fixture')
             h=dict(name='http-fixture',host='127.0.0.1',port=http.server_port,path='/custom/api',accessToken=HTTP.token)
@@ -188,7 +185,7 @@ def main():
             assert set(HTTP.actions)=={'/custom/api/get_login_info'}
             assert set(events.calls)=={'/custom/events','/wrong-events'}
         print('PASS: isolated real HTTP/WS, exact account/path/separate tokens, no-token import, old values retained on failure, scopes, JSON/snapshot/overlay, disabled/multiple nodes, fresh/repeated saves, origin guards; no personal QQ or message content accessed.')
-    finally:events.close();http.shutdown();http.server_close();thread.join(3)
+    finally:events.close()
 
 
 if __name__=='__main__':main()

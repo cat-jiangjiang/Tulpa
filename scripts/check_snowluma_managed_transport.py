@@ -1,6 +1,6 @@
 """Local TCP/WS + Windows primitives with synthetic accounts, never SnowLuma/QQ."""
 import copy
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import json
 import os
 from pathlib import Path
@@ -9,7 +9,6 @@ import sys
 import tempfile
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
 # Windows embeddable Python intentionally omits the caller's directory from
@@ -17,6 +16,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from check_snowluma_managed import (ROOT, SOURCE, ManagedSnowLuma, ManagedError,
     Runtime, API, Installer, Vault, Receiver, load_manifest, consent_key, wait, rejected, fixture_manifest, accept)
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.snowluma_secure import file_lock, read_json, atomic_json
 from chatlocal.snowluma_runtime import WindowsRuntime, process_identity
 from chatlocal.onebot import Client, OneBotError
@@ -81,19 +81,17 @@ def faults(root):
 def transport(root):
     manifest=fixture_manifest()
     runtime=Runtime();api=API(runtime);resources=[];received=[];credentials={};wire=[]
-    class HTTP(BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
+    stack=ExitStack()
+    class HTTP(FixtureHandler):
         def do_POST(self):
             self.rfile.read(int(self.headers.get('Content-Length','0')))
             wire.append(self.path)
             assert self.path=='/get_login_info','Unexpected write action'
             assert self.headers.get('Authorization')=='Bearer '+credentials['http_token']
-            raw=json.dumps(dict(status='ok',retcode=0,data=dict(user_id='12345'))).encode()
-            self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+            self.send_json(dict(status='ok',retcode=0,data=dict(user_id='12345')))
     def configure(account,ports,secrets):
         credentials.update(secrets)
-        http=ThreadingHTTPServer(('127.0.0.1',ports['http']),HTTP)
-        ht=threading.Thread(target=http.serve_forever,daemon=True);ht.start();resources.append((http,ht))
+        stack.enter_context(fixture_server(HTTP,port=ports['http']))
         def auth(ws,request):
             if request.headers.get('Authorization')!='Bearer '+credentials['ws_token']:return ws.respond(401,'fixture')
         def events(ws):
@@ -126,6 +124,7 @@ def transport(root):
         assert len(wire)==before and not received and set(wire)=={'/get_login_info'}
     finally:
         service.close();_registry.pop(str(root.resolve()).casefold(),None)
+        stack.close()
         for server,thread in resources:
             server.shutdown();thread.join(3)
             if hasattr(server,'server_close'):server.server_close()

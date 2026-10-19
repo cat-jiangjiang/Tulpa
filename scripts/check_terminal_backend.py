@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from contextlib import ExitStack
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from check_fixture_support import isolated_env
 sys.path.insert(0, str(ROOT/'scripts'))
+from fixture_server import FixtureHandler,fixture_server
 from fastapi.testclient import TestClient
 from check_mcp_chat import Events
 from chatlocal.platform_lock import file_lock
@@ -26,12 +27,11 @@ from chatlocal.terminal_client import TerminalClient, TerminalError, read_token,
 from chatlocal.terminal_server import create_app, ensure_token
 
 
-class SL(BaseHTTPRequestHandler):
+class SL(FixtureHandler):
     sent = []
-    def log_message(self, *args): pass
     def do_POST(self):
         assert self.headers.get('Authorization') == 'Bearer http-terminal-fixture'
-        body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        body = self.read_json()
         action = self.path.lstrip('/')
         if action == 'get_login_info': data = dict(user_id=111)
         elif action == 'get_group_list': data = [dict(group_id=222, group_name='Terminal fixture')]
@@ -40,9 +40,7 @@ class SL(BaseHTTPRequestHandler):
         elif action == 'send_group_msg':
             self.sent.append(body); data = dict(message_id=900)
         else: raise AssertionError(action)
-        raw = json.dumps(dict(status='ok', retcode=0, data=data)).encode()
-        self.send_response(200); self.send_header('Content-Length', str(len(raw))); self.end_headers()
-        self.wfile.write(raw)
+        self.send_json(dict(status='ok', retcode=0, data=data))
 
 
 class TerminalTests(unittest.TestCase):
@@ -52,8 +50,8 @@ class TerminalTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         (self.root/'imports').mkdir()
         self.events = Events()
-        self.sl = ThreadingHTTPServer(('127.0.0.1', 0), SL)
-        self.thread = threading.Thread(target=self.sl.serve_forever, daemon=True); self.thread.start()
+        self.stack = ExitStack()
+        self.sl = self.stack.enter_context(fixture_server(SL))
         self.env = patch.dict(os.environ,isolated_env(),clear=True); self.env.start()
         self.roots = [patch('chatlocal.onebot.ROOT', self.root), patch('chatlocal.message_sender.ROOT', self.root)]
         for value in self.roots: value.start()
@@ -68,7 +66,7 @@ class TerminalTests(unittest.TestCase):
     def tearDown(self):
         self.client.__exit__(None, None, None)
         self.events.close()
-        self.sl.shutdown(); self.sl.server_close(); self.thread.join(3)
+        self.stack.close()
         for value in reversed(self.roots): value.stop()
         self.env.stop()
         self.tmp.cleanup()
