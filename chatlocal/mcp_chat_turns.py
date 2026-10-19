@@ -200,21 +200,18 @@ class ChatTurns:
         if focus.get('all'):return peers
         message_ids=set(map(str,focus['message_ids']))
         terms=[term.casefold() for term in focus['terms']]
-        following=set();related=[];started=False
-        # Follow the chosen conversation in event order. A participant who
-        # explicitly addresses another conversation takes their unmarked
-        # followups with them; their identity alone must not stall this reply.
-        # Quoting this thread, addressing us or a selected topic term brings
-        # them back. No timeout guesses away a late, unaddressed correction.
+        following=set();related=[];started=False;participants=set()
         for message in messages:
             sender=message['sender_id'];mid=str(message['onebot_message_id'])
             if mid in message_ids:started=True
             if not started or message.get('is_self'):continue
             replies={str(s.get('onebot_message_id')) for s in message.get('segments',[]) if s.get('type')=='reply'}
             mentions={str(s.get('qq')) for s in message.get('segments',[]) if s.get('type')=='at' and s.get('qq') not in ('all','',None)}
-            direct=(mid in message_ids or bool(replies & message_ids) or account in mentions
+            direct=(mid in message_ids or bool(replies & message_ids) or (sender in participants and account in mentions)
                     or any(term in message.get('content','').casefold() for term in terms))
-            if direct:following.add(sender)
+            if direct:
+                participants.add(sender)
+                following.add(sender)
             elif replies or mentions:
                 following.discard(sender)
                 continue

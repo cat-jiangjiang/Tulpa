@@ -337,6 +337,15 @@ def main():
                     finally:halt.set();worker.join()
                     results.append('unrelated traffic does not starve a selected response')
 
+                    # A third-party @-ing the bot during composition does not invalidate existing target's reply
+                    clear_budget()
+                    first_target=add('UserA的问题',uid=101)
+                    time.sleep(.18);p=plan(first_target);assert p['state']=='READY',p
+                    add(uid=202,segments=[dict(type='at',data={'qq':'111'}),dict(type='text',data={'text':'UserB问另一个问题'})])
+                    before_send=len(ReactionBot.sent);out=send(p)
+                    assert out['state']=='SUCCEEDED' and len(ReactionBot.sent)==before_send+1,out
+                    results.append('third-party bot mention does not starve or invalidate existing target reply')
+
                     # A selected speaker can move to another conversation while
                     # the Agent composes. Native addressing, not speaker identity,
                     # distinguishes that conversation and its unmarked followups.
