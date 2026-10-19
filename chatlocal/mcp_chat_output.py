@@ -35,7 +35,9 @@ def compact_wait(data,known_prompt_version=None):
     guidance['reaction_notices']={k:notices.get(k,[]) for k in ('items','new_items')}
     learning=full.get('language_learning')
     if learning:guidance['language_learning']={k:learning[k] for k in ('enabled','automatic') if k in learning}
-    if 'member_dossiers' in full:guidance['member_dossiers']=full['member_dossiers']
+    if 'member_dossiers' in full:
+        guidance['member_dossiers']=full['member_dossiers']
+        guidance['reminders'].append('已自动加载发言群友的小本本画像，可自然使用其外号、XP喜好与核心记忆针对性调侃（偶尔可用“我小本本上可记着...”），严禁客服腔。')
     result={k:v for k,v in data.items() if k not in ('chat_guidance','note')}
     result['chat_guidance']=guidance
     if 'receiver' in result:

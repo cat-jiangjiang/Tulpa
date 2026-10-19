@@ -35,8 +35,11 @@ class MemoryEngine:
 
     @contextmanager
     def _connect(self):
-        conn = sqlite3.connect(str(self.db_path), timeout=10)
+        conn = sqlite3.connect(str(self.db_path), timeout=15)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=10000")
         try:
             with conn:
                 yield conn
@@ -190,7 +193,7 @@ class MemoryEngine:
             if row:
                 return dict(row)
 
-            # 3. Match within aliases JSON array
+            # 3. Match within aliases JSON array (exact case-insensitive match)
             all_rows = conn.execute("SELECT * FROM member_profiles").fetchall()
             ident_lower = ident_str.casefold()
             for r in all_rows:
@@ -198,14 +201,21 @@ class MemoryEngine:
                 if any(ident_lower == str(a).casefold() for a in aliases):
                     return dict(r)
 
-            # 4. Substring / partial match on aliases or primary_name
-            for r in all_rows:
-                p_name = str(r["primary_name"]).casefold()
-                if ident_lower in p_name or p_name in ident_lower:
-                    return dict(r)
-                aliases = json.loads(r["aliases"] or "[]")
-                if any(ident_lower in str(a).casefold() or str(a).casefold() in ident_lower for a in aliases):
-                    return dict(r)
+            # 4. Conservative substring match on primary_name or specific aliases.
+            # Requires len >= 2 and query is a substring of the profile's name/alias.
+            # Never checks if an alias is a substring of query (preventing "领导发奖金" matching "时月").
+            if len(ident_lower) >= 2:
+                for r in all_rows:
+                    p_name = str(r["primary_name"]).casefold()
+                    if ident_lower in p_name:
+                        return dict(r)
+                    aliases = json.loads(r["aliases"] or "[]")
+                    for a in aliases:
+                        a_str = str(a).casefold()
+                        if a_str in ("领导", "群友"):
+                            continue
+                        if ident_lower in a_str:
+                            return dict(r)
 
         return None
 
@@ -275,14 +285,29 @@ class MemoryEngine:
         return self.find_profile(user_id)
 
     def record_event(self, user_id, group_id, quote, context, source="interaction", tags=None, timestamp=None):
-        """Records a timeline event scoped to a specific group."""
+        """Records a timeline event scoped to a specific group, with recent deduplication."""
         now = time.time()
         ts = timestamp if timestamp is not None else now
         user_id = str(user_id).strip()
         group_id = str(group_id).strip()
         tags_list = list(dict.fromkeys(tags or []))
+        q_str = str(quote)[:1000]
+        c_str = str(context)[:1000]
+        s_str = str(source)[:50]
 
         with self.lock, self._connect() as conn:
+            # Deduplicate identical recent events within 300 seconds (e.g. idle digest loops)
+            dup = conn.execute(
+                """
+                SELECT id FROM member_events
+                WHERE user_id=? AND group_id=? AND quote=? AND source=? AND timestamp > ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (user_id, group_id, q_str, s_str, ts - 300),
+            ).fetchone()
+            if dup:
+                return dup[0]
+
             cursor = conn.execute(
                 """
                 INSERT INTO member_events (user_id, group_id, timestamp, quote, context, source, tags, created_at)
@@ -292,9 +317,9 @@ class MemoryEngine:
                     user_id,
                     group_id,
                     ts,
-                    str(quote)[:1000],
-                    str(context)[:1000],
-                    str(source)[:50],
+                    q_str,
+                    c_str,
+                    s_str,
                     json.dumps(tags_list, ensure_ascii=False),
                     now,
                 ),
@@ -307,86 +332,83 @@ class MemoryEngine:
         """Recognizes user banter commands like:
 
         - 🐟包 记在小本本上 [某人] 其实[喜好/事实]
+        - @bot 记在小本本上 [某人] 喜欢[某事物]
         - 小本本记录 [内容]
         - 记在小本本上 [某人] [喜好/事实]
+        - 快记在小本本上 [某人] [喜好/事实]
         """
         if not text or not isinstance(text, str):
             return {"is_command": False}
 
         raw = text.strip()
-        # Patterns matching "小本本" commands
-        # 1. 记在小本本上 / 记入小本本 / 小本本记上 / 小本本记录
-        cmd_re = re.compile(
-            r"^(?:(?:[🐟鱼小]*包[子]?|机器人|bot)\s*)?(?:在)?小本本(?:上)?(?:记(?:录|下)?|写上)\s*(?:[：:]|\s+)?(?P<content>.+)$",
-            re.IGNORECASE,
+
+        # Robust regex supporting @bot, @123456, 🐟包, 鱼包, punctuation, and conversational prefixes
+        bot_prefix = r"(?:(?:@\d+|@?(?:[🐟鱼小]*包[子]?|机器人|bot))\s*[，,：:!！\s]*)?"
+        action_prefix = (
+            r"(?:(?:请|帮我|麻烦|快)?(?:在)?小本本(?:上)?(?:记(?:录|下|上一笔|一笔|一下)?|写上)"
+            r"|(?:请|帮我|麻烦|快)?(?:记在|记入|写在|写进|记)小本本(?:上)?(?:记|录|写)?"
+            r"|(?:拿|用)小本本(?:记(?:录|下|上一笔|一笔|一下)?|写上))"
         )
-        alt_cmd_re = re.compile(
-            r"^(?:(?:[🐟鱼小]*包[子]?|机器人|bot)\s*)?小本本记录\s*(?:[：:]|\s+)?(?P<content>.+)$",
-            re.IGNORECASE,
-        )
-        rec_re = re.compile(
-            r"^(?:(?:[🐟鱼小]*包[子]?|机器人|bot)\s*)?(?:记在|记入)小本本(?:上)?\s*(?:[：:]|\s+)?(?P<content>.+)$",
+        cmd_pattern = re.compile(
+            r"^" + bot_prefix + action_prefix + r"\s*[：:，,\s]\s*(?P<content>.+)$|^" + bot_prefix + action_prefix + r"\s*(?P<content2>\S.+)$",
             re.IGNORECASE,
         )
 
-        content = None
-        for r in (cmd_re, alt_cmd_re, rec_re):
-            m = r.match(raw)
-            if m:
-                content = m.group("content").strip()
-                break
+        m = cmd_pattern.match(raw)
+        if not m:
+            return {"is_command": False}
 
+        content = (m.group("content") or m.group("content2") or "").strip()
         if not content:
             return {"is_command": False}
 
-        # Sub-parse target and fact from content
-        # E.g., "criss 其实最喜欢🐻男" -> target="criss", fact="最喜欢🐻男"
-        # E.g., "孩董原来不仅变态还爱女装" -> target="孩董", fact="不仅变态还爱女装"
-        # E.g., "给时月记上一笔：天天摸鱼" -> target="时月", fact="天天摸鱼"
-        target_fact_re = re.compile(
-            r"^(?:给\s*)?(?P<target>[\w\u4e00-\u9fa5]+?)(?:\s*(?:记上|记一笔|记上一笔)?\s*[：:]|\s*(?:其实|原来|特别|非常|最|平时|经常|天天|整天|又|一直|是个|是|爱|喜欢)\s*)(?P<fact>.+)$"
-        )
-        tf_match = target_fact_re.match(content)
-        if tf_match:
-            target = tf_match.group("target").strip()
-            fact = tf_match.group("fact").strip()
-            return {
-                "is_command": True,
-                "target": target,
-                "fact": fact,
-                "content": content,
-            }
+        # 1. Match colon delimiter: 给老王记上一笔：天天摸鱼打卡 or 时月: 装纯
+        colon_m = re.match(r"^(?:给\s*)?(?P<target>[\w\u4e00-\u9fa5]{2,16}?)(?:\s*(?:记上|记一笔|记上一笔))?\s*[：:]\s*(?P<fact>.+)$", content)
+        if colon_m:
+            target = colon_m.group("target").strip()
+            fact = colon_m.group("fact").strip()
+            return {"is_command": True, "target": target, "fact": fact, "content": content}
 
-        # Check if content starts with a known member name/alias (e.g. "时月天天在群里装纯")
-        for prefix_len in (6, 5, 4, 3, 2):
-            if len(content) > prefix_len:
-                candidate = content[:prefix_len].strip()
-                prof = self.find_profile(candidate)
-                if prof:
-                    fact_str = content[prefix_len:].strip(" ：:，,")
+        # 2. Check if content starts with a known member profile (longest candidate first)
+        with self.lock, self._connect() as conn:
+            rows = conn.execute("SELECT primary_name, aliases FROM member_profiles").fetchall()
+        known_names = set()
+        for r in rows:
+            known_names.add(r["primary_name"])
+            for a in json.loads(r["aliases"] or "[]"):
+                if len(str(a)) >= 2 and str(a) not in ("领导", "群友"):
+                    known_names.add(str(a))
+
+        for cand in sorted(known_names, key=len, reverse=True):
+            if content.startswith(cand):
+                fact_str = content[len(cand):].strip(" ：:，,")
+                if fact_str:
+                    prof = self.find_profile(cand)
+                    target_name = prof["primary_name"] if prof else cand
                     return {
                         "is_command": True,
-                        "target": prof["primary_name"],
-                        "fact": fact_str or content,
+                        "target": target_name,
+                        "fact": fact_str,
                         "content": content,
                     }
 
-        # Fallback: if format is "target fact" (separated by whitespace)
-        parts = content.split(maxsplit=1)
-        if len(parts) == 2 and len(parts[0]) <= 12:
-            return {
-                "is_command": True,
-                "target": parts[0].strip(),
-                "fact": parts[1].strip(),
-                "content": content,
-            }
+        # 3. Match target with predicate / transition words (e.g. "老王 其实天天打卡", "张三 喜欢吃螺蛳粉")
+        # NOTE: The predicate words MUST be captured as part of (?P<fact>...) so verbs like "喜欢" are not lost!
+        trans_m = re.match(
+            r"^(?:给\s*)?(?P<target>[\w\u4e00-\u9fa5]{2,12}?)\s*(?:记上|记一笔|记上一笔)?\s*(?P<fact>(?:其实|原来|特别|非常|最|平时|经常|天天|整天|又|一直|每天|是个|是|爱|喜欢|讨厌|沉迷).+)$",
+            content,
+        )
+        if trans_m:
+            target = trans_m.group("target").strip()
+            fact = trans_m.group("fact").strip()
+            return {"is_command": True, "target": target, "fact": fact, "content": content}
 
-        return {
-            "is_command": True,
-            "target": None,
-            "fact": content,
-            "content": content,
-        }
+        # 4. Fallback: space-separated "target fact"
+        parts = content.split(maxsplit=1)
+        if len(parts) == 2 and 2 <= len(parts[0]) <= 12:
+            return {"is_command": True, "target": parts[0].strip(), "fact": parts[1].strip(), "content": content}
+
+        return {"is_command": True, "target": None, "fact": content, "content": content}
 
     def handle_explicit_command(self, sender_id, sender_name, group_id, text):
         """Processes an explicit banter command, updating DB and compact profiles."""
@@ -460,18 +482,36 @@ class MemoryEngine:
         profile = self.find_profile(sender_id)
         if not profile:
             # Check if sender_name matches an existing seed profile
-            named_profile = self.find_profile(sender_name)
-            if named_profile and named_profile["user_id"].startswith("seed:"):
-                # Bind actual QQ number to this seed profile
+            # SAFETY GUARD: Only bind if sender_name is an EXACT match to primary_name or distinct aliases
+            # (never match on partial names or generic words like "领导")
+            named_profile = None
+            if sender_name and len(sender_name.strip()) >= 2 and sender_name.strip() not in ("领导", "群友"):
+                candidate_prof = self.find_profile(sender_name.strip())
+                if candidate_prof and candidate_prof["user_id"].startswith("seed:"):
+                    # Verify exact match on primary_name or distinct aliases
+                    p_name = candidate_prof["primary_name"].casefold()
+                    c_aliases = [str(a).casefold() for a in json.loads(candidate_prof["aliases"] or "[]") if str(a) != "领导"]
+                    if sender_name.strip().casefold() == p_name or sender_name.strip().casefold() in c_aliases:
+                        named_profile = candidate_prof
+
+            if named_profile:
+                # Bind actual QQ number to this seed profile, and migrate member_events
+                old_seed_id = named_profile["user_id"]
                 with self.lock, self._connect() as conn:
                     cur_aliases = json.loads(named_profile["aliases"] or "[]")
                     if str(sender_id) not in cur_aliases:
                         cur_aliases.append(str(sender_id))
                     if sender_name and sender_name not in cur_aliases:
                         cur_aliases.append(sender_name)
+                    if old_seed_id not in cur_aliases:
+                        cur_aliases.append(old_seed_id)
                     conn.execute(
                         "UPDATE member_profiles SET user_id=?, aliases=?, updated_at=? WHERE user_id=?",
-                        (str(sender_id), json.dumps(cur_aliases, ensure_ascii=False), time.time(), named_profile["user_id"]),
+                        (str(sender_id), json.dumps(cur_aliases, ensure_ascii=False), time.time(), old_seed_id),
+                    )
+                    conn.execute(
+                        "UPDATE member_events SET user_id=? WHERE user_id=?",
+                        (str(sender_id), old_seed_id),
                     )
                 profile = self.find_profile(sender_id)
             else:
@@ -493,14 +533,18 @@ class MemoryEngine:
         interest_match = re.search(r"我(?:其实|平时|最|特别|经常|超)*(?:喜欢玩|爱玩|喜欢|爱|超爱|沉迷|在玩)\s*([A-Za-z0-9\u4e00-\u9fa5]{2,16}?)(?:了|呢|啊|哈|[，。！？\s]|$)", text)
         if interest_match:
             item = interest_match.group(1).strip()
-            if item not in ("你", "大家", "什么", "这个", "那个"):
+            if item not in ("你", "大家", "什么", "这个", "那个", "哈哈", "呵呵", "嘿嘿", "嘻嘻", "草", "乐"):
                 extracted_interests.append(item)
 
         # First-person trait declarations: "我才不是...", "我是..."
         extracted_traits = {}
         trait_match = re.search(r"我(?:才不是|不是|其实是|是个)\s*([A-Za-z0-9\u4e00-\u9fa5]{2,16}?)(?:了|呢|啊|哈|[，。！？\s]|$)", text)
         if trait_match:
-            extracted_traits["self_claim"] = trait_match.group(1).strip()
+            claim = trait_match.group(1).strip()
+            if "不是" in text or "才不是" in text:
+                extracted_traits["self_claim"] = f"否认{claim}/嘴硬"
+            else:
+                extracted_traits["self_claim"] = claim
 
         # Update profile if any info was extracted
         if extracted_interests or extracted_traits:
@@ -548,10 +592,14 @@ class MemoryEngine:
             # Check if this is an explicit command
             cmd = self.parse_explicit_command(text)
             if cmd.get("is_command"):
+                # Handle command with deduplication protection
                 res = self.handle_explicit_command(sender_id, sender_name, group_id, text)
                 if res and res["target"] not in updated:
                     updated.append(res["target"])
                 continue
+
+            # Extract any preference declarations in background messages
+            self.extract_interaction(sender_id, sender_name, group_id, text, is_direct=False)
 
             # Tone & jargon observation: check for signature expressions
             prof = self.find_profile(sender_id)
@@ -559,12 +607,12 @@ class MemoryEngine:
                 prof = self.save_profile(user_id=sender_id, primary_name=sender_name or sender_id)
 
             tone_clues = []
-            if any(w in text for w in ("草", "乐", "难绷", "蚌埠住了", "6", "？", "何意味")):
+            if any(w in text for w in ("草", "乐", "难绷", "蚌埠住了", "6", "？", "何意味", "幽默")):
                 tone_clues.append("沙雕梗多")
             if any(w in text for w in ("🐻男", "猛男", "大胸", "胸肌", "腹肌")):
                 tone_clues.append("猛男控/爱看肌肉")
                 self.save_profile(user_id=prof["user_id"], primary_name=prof["primary_name"], interests=["🐻男/猛男"])
-            if any(w in text for w in ("原神", "启动", "三国杀", "蒸")):
+            if any(w in text for w in ("原神", "启动", "三国杀", "蒸", "崩铁", "鸣潮", "绝区零", "黑神话")):
                 tone_clues.append("二次元/游戏党")
                 self.save_profile(user_id=prof["user_id"], primary_name=prof["primary_name"], interests=["游戏"])
 
@@ -645,7 +693,8 @@ class MemoryEngine:
                         (uid, str(group_id)),
                     ).fetchone()
                     if ev:
-                        group_event_note = f" | 本群八卦: {ev['context'] or ev['quote']}"
+                        raw_note = (ev["context"] or ev["quote"]).strip()
+                        group_event_note = f" | 本群八卦: {raw_note[:45]}"
 
             card = f"【群友档案：{p_name}】外号: {alias_str} | 风格: {tone} | XP喜好: {interest_str} | 核心记忆: {mem_str}{group_event_note}"
             cards.append(card)

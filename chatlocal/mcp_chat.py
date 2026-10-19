@@ -998,9 +998,9 @@ class MCPChat:
         gid = args.get('group_id')
         if not gid and args.get('session_id'):
             try:
-                row = self.row(args['session_id'])
+                row = self.row(args['session_id'], grant['id'])
                 gid = row['conversation_id'].split(':')[-1]
             except Exception:
                 pass
-        return engine.query_member_dossier(args['identifier'], group_id=gid)
+        return engine.query_member_dossier(str(args.get('identifier', '')), group_id=str(gid) if gid else None)
 
