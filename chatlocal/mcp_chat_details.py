@@ -6,6 +6,7 @@ import time
 from . import reply_timing as timing
 from .mcp_chat_media import image_ref
 from .onebot import OneBotError
+from .onebot_segments import at as at_segment, reply as reply_segment
 
 MAX_NODES=50
 MAX_TEXT=12000
@@ -42,8 +43,8 @@ def sanitize_nodes(value,depth=0,budget=None):
                 truncated=truncated or len(text)<len(original)
                 segments.append(dict(type='text',text=text))
             elif kind in ('image','mface'):segments.append(dict(type='image',image=image_ref(d)))
-            elif kind=='reply':segments.append(dict(type='reply',onebot_message_id=str(d.get('id',''))[:100]))
-            elif kind=='at':segments.append(dict(type='at',qq=str(d.get('qq',''))[:30]))
+            elif kind=='reply':segments.append(reply_segment(d.get('id')))
+            elif kind=='at':segments.append(at_segment(d.get('qq')))
             elif kind=='forward':
                 children=sanitize_nodes(d,depth+1,budget);raw_children=forward_nodes(d)
                 ref=dict(type='forward',truncated=depth+1>=2 or raw_children is None or len(children)<len(raw_children))

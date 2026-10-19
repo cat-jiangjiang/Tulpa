@@ -14,6 +14,7 @@ import uuid
 
 from .mcp_access import AccessDenied
 from .onebot_events import EventReceiver
+from .onebot_segments import at as at_segment, message_id, qq as qq_id, reply as reply_segment
 from . import mcp_chat_prompts as prompts
 from .mcp_chat_turns import ChatTurns, TOOLS as TURN_TOOLS, schema as turn_schemas
 from .mcp_language_learning import ChatLearning, TOOLS as LEARNING_TOOLS, schemas as learning_schemas
@@ -470,9 +471,9 @@ class MCPChat:
                 if kind=='text':
                     value=str(data.get('text',''))[:12000];parts.append(value);segments.append(dict(type='text',text=value))
                 elif kind=='at':
-                    value=str(data.get('qq',''))[:30];parts.append('@'+value);segments.append(dict(type='at',qq=value))
+                    value=qq_id(data.get('qq'));parts.append('@'+value);segments.append(at_segment(value))
                 elif kind=='reply':
-                    value=str(data.get('id',''))[:100];parts.append('[引用 QQ 消息 '+value+']');segments.append(dict(type='reply',onebot_message_id=value))
+                    value=message_id(data.get('id'));parts.append('[引用 QQ 消息 '+value+']');segments.append(reply_segment(value))
                     if value not in ('','0') and len(details)<8:details.append(dict(type='reply',id=value))
                     elif value not in ('','0'):segments[-1]['state']='detail_limit'
                 elif kind=='forward' and len(details)<8:
