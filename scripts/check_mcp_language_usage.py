@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).parent))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from check_fixture_support import isolated_env
+from check_fixture_support import isolated_env, network_guard
 from check_mcp_reactions import ReactionBot, Events, eventually, ROOT
 from check_mcp_language_learning import ground_fixture_rows
 from chatlocal.store import Store
@@ -221,10 +221,7 @@ def main():
     events=Events();ReactionBot.sent=[];ReactionBot.writes=[];ReactionBot.history={};ReactionBot.intercept=None
     server=ThreadingHTTPServer(('127.0.0.1',0),ReactionBot)
     threading.Thread(target=server.serve_forever,daemon=True).start()
-    ports={server.server_port,events.port};connect=socket.create_connection
-    def restrict(address,*args,**kw):
-        assert address[0] in ('127.0.0.1','localhost','::1') and address[1] in ports,address
-        return connect(address,*args,**kw)
+    ports={server.server_port,events.port};restrict,_=network_guard(ports)
     try:
         with tempfile.TemporaryDirectory(prefix='tulpa-language-usage-') as tmp,patch.dict('os.environ',isolated_env(),clear=True),patch('socket.create_connection',restrict):
             root=Path(tmp);store=Store(root/'chats.sqlite3')

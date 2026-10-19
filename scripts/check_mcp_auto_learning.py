@@ -25,7 +25,7 @@ from PIL import Image
 
 sys.path.insert(0,str(Path(__file__).parent))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from check_fixture_support import isolated_env
+from check_fixture_support import isolated_env, network_guard
 from check_mcp_reactions import ReactionBot,Events,ROOT
 from check_mcp_chat_enrichment import DetailBot, text
 from check_mcp_chat_media import fixture_image
@@ -323,10 +323,7 @@ def main():
     events=Events();ReactionBot.sent=[];ReactionBot.writes=[];ReactionBot.intercept=None
     upstream=ThreadingHTTPServer(('127.0.0.1',0),LearningBot)
     threading.Thread(target=upstream.serve_forever,daemon=True).start()
-    ports={events.port,upstream.server_port};connect=socket.create_connection
-    def restrict(address,*args,**kwargs):
-        assert address[0] in ('localhost','127.0.0.1','::1') and address[1] in ports,address
-        return connect(address,*args,**kwargs)
+    ports={events.port,upstream.server_port};restrict,_=network_guard(ports)
     try:
         with tempfile.TemporaryDirectory() as tmp,patch.dict('os.environ',isolated_env(),clear=True),patch('socket.create_connection',restrict):
             root=Path(tmp);data=Store(root/'chats.sqlite3')

@@ -31,15 +31,19 @@ def temp_dir(prefix='tulpa-test-'):
 def network_guard(ports):
     """Patch helper: allow loopback connections to ``ports`` only.
 
-    Returns ``(restrict, calls)`` so the caller can install ``restrict`` over
-    ``socket.create_connection`` and later assert on ``calls``.
+    ``ports`` is kept by reference so suites that bind an extra port after
+    installing the guard stay allowed. Returns ``(restrict, calls)``.
     """
-    allowed = {int(port) for port in ports}
+    allowed = ports if isinstance(ports, set) else set(ports)
     real_connect = socket.create_connection
     calls = []
 
     def restrict(address, *args, **kwargs):
-        assert address[0] in LOOPBACK and int(address[1]) in allowed, ('non-fixture connection blocked', address)
+        try:
+            permitted = address[0] in LOOPBACK and int(address[1]) in {int(port) for port in allowed}
+        except (TypeError, ValueError):
+            permitted = False
+        assert permitted, ('non-fixture connection blocked', address)
         calls.append(address)
         return real_connect(address, *args, **kwargs)
 

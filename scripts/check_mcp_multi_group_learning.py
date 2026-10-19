@@ -16,7 +16,7 @@ import time
 from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from check_fixture_support import isolated_env
+from check_fixture_support import isolated_env, network_guard
 from check_mcp_language_learning import Clock,ROOT,expression_fixture,review_fixture,jargon_fixture
 from check_mcp_reactions import ReactionBot,Events
 from chatlocal.mcp_language_store import LanguageStore,LearningError,digest
@@ -116,10 +116,7 @@ def integration():
     events=Events();ReactionBot.sent=[];ReactionBot.writes=[];ReactionBot.intercept=None
     server=ThreadingHTTPServer(('127.0.0.1',0),ReactionBot)
     threading.Thread(target=server.serve_forever,daemon=True).start()
-    ports={events.port,server.server_port};connect=socket.create_connection
-    def restrict(address,*args,**kw):
-        assert address[0] in ('127.0.0.1','localhost','::1') and address[1] in ports,address
-        return connect(address,*args,**kw)
+    ports={events.port,server.server_port};restrict,_=network_guard(ports)
     try:
         with tempfile.TemporaryDirectory(prefix='tulpa-multigroup-mcp-') as tmp,patch.dict('os.environ',isolated_env(),clear=True),patch('socket.create_connection',restrict):
             root=Path(tmp);history=Store(root/'chats.sqlite3')
