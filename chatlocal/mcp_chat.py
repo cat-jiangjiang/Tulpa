@@ -40,7 +40,7 @@ def load_water_group_config():
 
 
 CHAT_TOOLS = {'start_chat_session', 'get_chat_session', 'list_chat_sessions', 'read_chat_forward',
-              'wait_chat_messages', 'send_chat_message', 'stop_chat_session', 'list_chat_groups', 'list_chat_friends', 'list_chat_personas', 'react_to_chat_message', 'query_member_dossier'} | TURN_TOOLS | LEARNING_TOOLS
+              'wait_chat_messages', 'send_chat_message', 'stop_chat_session', 'list_chat_groups', 'list_chat_friends', 'list_chat_personas', 'react_to_chat_message', 'query_member_dossier', 'update_member_dossier', 'consolidate_chat_memory'} | TURN_TOOLS | LEARNING_TOOLS
 CHAT_INSTRUCTIONS = '''这是用户明确开启的持续聊天，不设总时长；直到用户停止、权限失效或客户端退出。
 开始即在当前机器人账号与授权会话内边聊边学，保留之前明确暂停的偏好；只学习本次实时他人消息，不读历史或更换模型目的地。好友私聊使用 ACCOUNT:direct:QQ，群聊使用 ACCOUNT:group:GROUP；不发送临时会话。
 统一循环：wait 收到消息先做 Planner；silence 仅结束本轮发言决定，确认处理进度后继续 wait，绝不退出水群。Planner 的 WAITING 只是暂缓决定，不确认本批完成；沿 next_call 等待，到期或新输入时程序重新交付可规划批次。wait 返回 learning_ready 时领取一个阶段；claim 返回 task 时，用下一次实际模型调用完成并沿 task.submit_call 提交。claim/submit 附 updated_chat 时直接沿 next_call 先聊天；未领取任务或已提交且无附带聊天时回 wait。每次只推进一个阶段，不连续领取，无需用户另给学习口令。
@@ -107,6 +107,24 @@ def schemas(tool):
                   group_id=dict(type='string', description='当前群号（可选，用于过滤群内专属八卦事件）'),
                   session_id=dict(type='string', description='当前持续聊天会话编号（可选，自动推导群号）')),
              ['identifier']),
+        tool('update_member_dossier', '更新或补充指定群友的小本本记忆与画像档案（包括核心记忆、性格特征、外号、XP喜好、角色身份等）。用于在聊天中捕捉到群友新狠料、明确偏好或被纠正称谓时，原生写入持久化记忆，无需直接操作底层数据库。',
+             dict(identifier=dict(type='string', description='群友 QQ 号、群名片、昵称或既有外号'),
+                  key_memories=dict(type='array', items=dict(type='string'), description='需要记录或追加的核心记忆/黑料/事件（如“重度二次元”、“沉迷三国杀”等）'),
+                  interests=dict(type='array', items=dict(type='string'), description='群友喜好/游戏/XP领域列表'),
+                  traits=dict(type='object', description='结构化特征槽位，如 {"role": "孩董", "trope": "反差"}'),
+                  aliases=dict(type='array', items=dict(type='string'), description='新增外号/别名列表'),
+                  tone_style=dict(type='string', description='说话口吻与风格偏好描述'),
+                  role=dict(type='string', description='在群内的角色身份（如“地牢主”、“孩董”、“活跃群友”）'),
+                  primary_name=dict(type='string', description='规范化主名称（可选）'),
+                  overwrite=dict(type='boolean', default=False, description='是否覆盖既有字段，默认 false 为智能追加合并')),
+             ['identifier']),
+        tool('consolidate_chat_memory', '批量整合与沉淀群聊记忆。将近期对话中提取的多位群友事件、性格变化、最新梗与话题摘要一次性结构化提炼归档至持久化记忆库，免去零散调用与数据库脚本操作。',
+             dict(group_id=dict(type='string', description='目标群号（可选，若提供 session_id 可自动推导）'),
+                  session_id=dict(type='string', description='当前持续聊天会话编号（可选，用于推导群号）'),
+                  records=dict(type='array', items=dict(type='object'), description='批量群友画像提炼列表，每项包含 identifier, key_memories, interests, traits, tone_style, event(quote, context, tags) 等'),
+                  events=dict(type='array', items=dict(type='object'), description='独立群事件与八卦流水列表，每项包含 identifier, quote, context, tags 等'),
+                  summary=dict(type='string', description='本次对话整体话题总结或阶段性沉淀摘要')),
+             []),
     ]
     next(s for s in rows if s['name']=='send_chat_message')['parameters']['properties']['plan_id']=dict(type='string',minLength=32,maxLength=32,description='plan_chat_reply 返回的 READY 计划；缺少时拒绝发送。')
     next(s for s in rows if s['name']=='send_chat_message')['parameters']['properties']['expression_ids']=dict(type='array',maxItems=5,uniqueItems=True,
@@ -985,6 +1003,8 @@ class MCPChat:
         if name=='send_chat_reply':return self.turns.submit(grant,args,cancel)
         if name in ('send_chat_message','react_to_chat_message'):return self.turns.single(grant,name,args,cancel)
         if name=='query_member_dossier':return self.query_member_dossier(grant,args)
+        if name=='update_member_dossier':return self.update_member_dossier(grant,args)
+        if name=='consolidate_chat_memory':return self.consolidate_chat_memory(grant,args)
         raise ValueError('未知持续聊天操作。')
 
     def query_member_dossier(self, grant, args):
@@ -1003,4 +1023,49 @@ class MCPChat:
             except Exception:
                 pass
         return engine.query_member_dossier(str(args.get('identifier', '')), group_id=str(gid) if gid else None)
+
+    def update_member_dossier(self, grant, args):
+        self.permission(grant)
+        import sys
+        wg_dir = str(PROJECT_ROOT / 'water-group')
+        if wg_dir not in sys.path:
+            sys.path.insert(0, wg_dir)
+        from memory_engine import get_memory_engine
+        engine = get_memory_engine()
+        return engine.update_member_dossier(
+            identifier=str(args.get('identifier', '')),
+            key_memories=args.get('key_memories'),
+            traits=args.get('traits'),
+            aliases=args.get('aliases'),
+            interests=args.get('interests'),
+            tone_style=args.get('tone_style'),
+            role=args.get('role'),
+            primary_name=args.get('primary_name'),
+            overwrite=bool(args.get('overwrite', False)),
+        )
+
+    def consolidate_chat_memory(self, grant, args):
+        self.permission(grant)
+        import sys
+        wg_dir = str(PROJECT_ROOT / 'water-group')
+        if wg_dir not in sys.path:
+            sys.path.insert(0, wg_dir)
+        from memory_engine import get_memory_engine
+        engine = get_memory_engine()
+        gid = args.get('group_id')
+        if not gid and args.get('session_id'):
+            try:
+                row = self.row(args['session_id'], grant['id'])
+                gid = row['conversation_id'].split(':')[-1]
+            except Exception:
+                pass
+        return engine.consolidate_chat_memory(
+            group_id=str(gid) if gid else None,
+            session_id=args.get('session_id'),
+            records=args.get('records'),
+            events=args.get('events'),
+            messages=args.get('messages'),
+            summary=args.get('summary'),
+        )
+
 

@@ -1024,6 +1024,228 @@ class MemoryEngine:
             "reply_hint": f"调侃建议：可称呼其外号（{'/'.join(aliases[:3])}），根据其XP喜好（{'/'.join(interests[:3])}）自然插话，偶尔可用'我小本本上可记着...'翻黑料调侃。",
         }
 
+    def update_member_dossier(
+        self,
+        identifier,
+        key_memories=None,
+        traits=None,
+        aliases=None,
+        interests=None,
+        tone_style=None,
+        role=None,
+        primary_name=None,
+        overwrite=False,
+    ):
+        """Tier 2 (L2 DB Storage) update for MCP tool `update_member_dossier`.
+
+        Allows external agents to natively update a member's dossier (key memories,
+        traits, aliases, roles, interests, tone style) without touching raw SQLite.
+        """
+        if not identifier:
+            return {"success": False, "error": "identifier_required", "note": "必须提供群友标识（QQ号、昵称、名片或既有外号）。"}
+
+        ident_str = str(identifier).strip()
+        prof = self.find_profile(ident_str)
+
+        now = time.time()
+        with self.lock, self._connect() as conn:
+            if prof:
+                uid = prof["user_id"]
+                p_name = primary_name.strip() if (primary_name and primary_name.strip()) else prof["primary_name"]
+
+                cur_aliases = json.loads(prof["aliases"] or "[]")
+                cur_interests = json.loads(prof["interests"] or "[]")
+                cur_traits = json.loads(prof["traits"] or "{}")
+                cur_memories = json.loads(prof["key_memories"] or "[]")
+
+                if overwrite:
+                    new_aliases = list(dict.fromkeys(aliases or cur_aliases))
+                    new_interests = list(dict.fromkeys(interests or cur_interests))
+                    new_traits = dict(traits) if traits is not None else cur_traits
+                    new_memories = list(dict.fromkeys(key_memories or cur_memories))[:10]
+                    new_tone = tone_style if tone_style is not None else prof["tone_style"]
+                else:
+                    new_aliases = list(dict.fromkeys(cur_aliases + (aliases or [])))
+                    new_interests = list(dict.fromkeys(cur_interests + (interests or [])))
+                    new_traits = {**cur_traits, **(traits or {})}
+                    incoming_memories = [key_memories] if isinstance(key_memories, str) else (key_memories or [])
+                    new_memories = list(dict.fromkeys(cur_memories + incoming_memories))[:10]
+                    new_tone = tone_style.strip() if (tone_style and tone_style.strip()) else prof["tone_style"]
+
+                if role:
+                    new_traits["role"] = str(role).strip()
+
+                if p_name not in new_aliases:
+                    new_aliases.insert(0, p_name)
+
+                conn.execute(
+                    """
+                    UPDATE member_profiles
+                    SET primary_name=?, aliases=?, tone_style=?, interests=?, traits=?, key_memories=?, updated_at=?
+                    WHERE user_id=?
+                    """,
+                    (
+                        p_name,
+                        json.dumps(new_aliases, ensure_ascii=False),
+                        new_tone,
+                        json.dumps(new_interests, ensure_ascii=False),
+                        json.dumps(new_traits, ensure_ascii=False),
+                        json.dumps(new_memories, ensure_ascii=False),
+                        now,
+                        uid,
+                    ),
+                )
+            else:
+                uid = ident_str
+                p_name = primary_name.strip() if (primary_name and primary_name.strip()) else ident_str
+                new_aliases = list(dict.fromkeys([p_name, ident_str] + (aliases or [])))
+                new_interests = list(dict.fromkeys(interests or []))
+                new_traits = dict(traits or {})
+                if role:
+                    new_traits["role"] = str(role).strip()
+                incoming_memories = [key_memories] if isinstance(key_memories, str) else (key_memories or [])
+                new_memories = list(dict.fromkeys(incoming_memories))[:10]
+                new_tone = tone_style.strip() if (tone_style and tone_style.strip()) else "普通群友"
+
+                conn.execute(
+                    """
+                    INSERT INTO member_profiles (user_id, primary_name, aliases, tone_style, interests, traits, key_memories, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        uid,
+                        p_name,
+                        json.dumps(new_aliases, ensure_ascii=False),
+                        new_tone,
+                        json.dumps(new_interests, ensure_ascii=False),
+                        json.dumps(new_traits, ensure_ascii=False),
+                        json.dumps(new_memories, ensure_ascii=False),
+                        now,
+                        now,
+                    ),
+                )
+
+        updated_prof = self.find_profile(uid)
+        return {
+            "success": True,
+            "user_id": uid,
+            "primary_name": updated_prof["primary_name"],
+            "profile": {
+                "user_id": updated_prof["user_id"],
+                "primary_name": updated_prof["primary_name"],
+                "aliases": json.loads(updated_prof["aliases"] or "[]"),
+                "tone_style": updated_prof["tone_style"],
+                "interests": json.loads(updated_prof["interests"] or "[]"),
+                "traits": json.loads(updated_prof["traits"] or "{}"),
+                "key_memories": json.loads(updated_prof["key_memories"] or "[]"),
+                "updated_at": updated_prof["updated_at"],
+            },
+            "note": f"已成功更新群友【{updated_prof['primary_name']}】的小本本画像档案。",
+        }
+
+    def consolidate_chat_memory(
+        self,
+        group_id=None,
+        session_id=None,
+        records=None,
+        events=None,
+        messages=None,
+        summary=None,
+    ):
+        """Batch consolidates recent chat insights and events into structured dossiers.
+
+        Allows external agents to summarize recent chat batch events, update
+        multiple members' profiles and record gossips/events in one call.
+        """
+        updated_profiles = []
+        recorded_events_count = 0
+        gid = str(group_id).strip() if group_id else ""
+
+        # 1. Process records (member profile updates + optional scoped event)
+        if records and isinstance(records, list):
+            for rec in records:
+                if not isinstance(rec, dict):
+                    continue
+                ident = rec.get("identifier") or rec.get("user_id") or rec.get("name")
+                if not ident:
+                    continue
+                res = self.update_member_dossier(
+                    identifier=ident,
+                    key_memories=rec.get("key_memories"),
+                    traits=rec.get("traits"),
+                    aliases=rec.get("aliases"),
+                    interests=rec.get("interests"),
+                    tone_style=rec.get("tone_style"),
+                    role=rec.get("role"),
+                    primary_name=rec.get("primary_name"),
+                    overwrite=bool(rec.get("overwrite", False)),
+                )
+                if res.get("success"):
+                    updated_profiles.append(res["primary_name"])
+                    ev = rec.get("event")
+                    if isinstance(ev, dict) and gid:
+                        self.record_event(
+                            user_id=res["user_id"],
+                            group_id=gid,
+                            quote=ev.get("quote", ""),
+                            context=ev.get("context", ""),
+                            source=ev.get("source", "consolidation"),
+                            tags=ev.get("tags", []),
+                        )
+                        recorded_events_count += 1
+
+        # 2. Process independent events
+        if events and isinstance(events, list) and gid:
+            for ev in events:
+                if not isinstance(ev, dict):
+                    continue
+                ident = ev.get("identifier") or ev.get("user_id")
+                if not ident:
+                    continue
+                prof = self.find_profile(ident)
+                uid = prof["user_id"] if prof else str(ident).strip()
+                self.record_event(
+                    user_id=uid,
+                    group_id=gid,
+                    quote=ev.get("quote", ""),
+                    context=ev.get("context", ""),
+                    source=ev.get("source", "consolidation"),
+                    tags=ev.get("tags", []),
+                )
+                recorded_events_count += 1
+
+        # 3. Process raw messages digest if provided
+        digested_count = 0
+        if messages and isinstance(messages, list):
+            digest_res = self.digest_idle_batch(gid, messages)
+            digested_count = digest_res.get("digested_count", 0)
+            for m_name in digest_res.get("updated_members", []):
+                if m_name not in updated_profiles:
+                    updated_profiles.append(m_name)
+
+        # 4. If summary is provided and group_id is present, record a group-level gossip milestone
+        if summary and str(summary).strip() and gid:
+            self.record_event(
+                user_id="group_summary",
+                group_id=gid,
+                quote=str(summary).strip()[:500],
+                context="话题阶段性提炼归档",
+                source="summary",
+                tags=["话题总结", "群聊纪要"],
+            )
+            recorded_events_count += 1
+
+        updated_unique = list(dict.fromkeys(updated_profiles))
+        return {
+            "success": True,
+            "group_id": gid or None,
+            "updated_profiles_count": len(updated_unique),
+            "updated_members": updated_unique,
+            "recorded_events_count": recorded_events_count,
+            "digested_messages_count": digested_count,
+            "note": f"成功归档：已提炼更新 {len(updated_unique)} 位群友档案，沉淀 {recorded_events_count} 条事件记忆。",
+        }
+
 
 # Global engine singleton
 _ENGINE_INSTANCE = None

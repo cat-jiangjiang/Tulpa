@@ -327,17 +327,105 @@ def test_l2_dossier_and_boundary_rules(tmp_dir):
     print("✓ 8. Tier 2 (L2 DB) query_member_dossier 与群聊私密事件边界隔离测试通过")
 
 
-def test_mcp_integration():
-    # 1. Check CHAT_TOOLS includes query_member_dossier
-    assert "query_member_dossier" in CHAT_TOOLS, "query_member_dossier must be in CHAT_TOOLS"
+def test_native_dossier_updates_and_consolidation(tmp_dir):
+    db_path = tmp_dir / "test_native_updates.sqlite3"
+    engine = MemoryEngine(db_path)
+    engine.seed_from_persona()
 
-    # 2. Check schemas includes query_member_dossier with valid schema
+    # 1. Test update_member_dossier for existing profile (时月)
+    update_res = engine.update_member_dossier(
+        identifier="时月",
+        key_memories=["经常在深夜偷玩三国杀并爆金币"],
+        role="至尊地牢主",
+        interests=["蒸蒸日上", "反差网黄"],
+    )
+    assert update_res["success"] is True
+    assert update_res["primary_name"] == "时月"
+    prof = engine.find_profile("时月")
+    memories = json.loads(prof["key_memories"])
+    traits = json.loads(prof["traits"])
+    interests = json.loads(prof["interests"])
+    assert any("经常在深夜偷玩三国杀并爆金币" in m for m in memories)
+    assert traits.get("role") == "至尊地牢主"
+    assert "蒸蒸日上" in interests
+
+    # 2. Test update_member_dossier for a brand new member
+    new_res = engine.update_member_dossier(
+        identifier="999888",
+        primary_name="新群友老王",
+        aliases=["老王", "隔壁老王"],
+        key_memories=["喜欢研究AI大模型架构"],
+        role="技术架构师",
+        tone_style="严谨技术宅",
+    )
+    assert new_res["success"] is True
+    new_prof = engine.find_profile("999888")
+    assert new_prof is not None
+    assert new_prof["primary_name"] == "新群友老王"
+    assert "隔壁老王" in json.loads(new_prof["aliases"])
+    assert new_prof["tone_style"] == "严谨技术宅"
+
+    # 3. Test consolidate_chat_memory in batch
+    con_res = engine.consolidate_chat_memory(
+        group_id="group_test_888",
+        records=[
+            {
+                "identifier": "999888",
+                "key_memories": ["新加入Tulpa项目讨论"],
+                "event": {
+                    "quote": "大家晚上好，今天聊聊MCP",
+                    "context": "首次在群内技术发言",
+                    "tags": ["技术交流"],
+                },
+            }
+        ],
+        events=[
+            {
+                "identifier": "时月",
+                "quote": "原神启动！",
+                "context": "深夜地牢摸鱼",
+                "tags": ["原神", "摸鱼"],
+            }
+        ],
+        summary="群内热烈探讨了MCP协议与记忆归档方案",
+    )
+    assert con_res["success"] is True
+    assert con_res["updated_profiles_count"] >= 1
+    assert con_res["recorded_events_count"] == 3  # 1 record event + 1 independent event + 1 summary
+
+    dossier = engine.query_member_dossier("999888", group_id="group_test_888")
+    assert dossier["found"] is True
+    assert any("首次在群内技术发言" in e["context"] for e in dossier["recent_events"])
+    assert any("新加入Tulpa项目讨论" in m for m in dossier["profile"]["key_memories"])
+
+    print("✓ 9. MCP 原生档案更新 update_member_dossier 与批量记忆归档 consolidate_chat_memory 测试通过")
+
+
+def test_mcp_integration():
+    # 1. Check CHAT_TOOLS includes query_member_dossier, update_member_dossier, consolidate_chat_memory
+    assert "query_member_dossier" in CHAT_TOOLS, "query_member_dossier must be in CHAT_TOOLS"
+    assert "update_member_dossier" in CHAT_TOOLS, "update_member_dossier must be in CHAT_TOOLS"
+    assert "consolidate_chat_memory" in CHAT_TOOLS, "consolidate_chat_memory must be in CHAT_TOOLS"
+
+    # 2. Check schemas includes dossiers tools with valid schemas
     from chatlocal.agent_tools import tool
     schemas = chat_schemas(tool)
     dossier_tool = next((s for s in schemas if s["name"] == "query_member_dossier"), None)
     assert dossier_tool is not None, "query_member_dossier schema must exist"
     assert "identifier" in dossier_tool["parameters"]["properties"]
     assert "group_id" in dossier_tool["parameters"]["properties"]
+
+    update_tool = next((s for s in schemas if s["name"] == "update_member_dossier"), None)
+    assert update_tool is not None, "update_member_dossier schema must exist"
+    assert "identifier" in update_tool["parameters"]["properties"]
+    assert "key_memories" in update_tool["parameters"]["properties"]
+    assert "traits" in update_tool["parameters"]["properties"]
+
+    consolidate_tool = next((s for s in schemas if s["name"] == "consolidate_chat_memory"), None)
+    assert consolidate_tool is not None, "consolidate_chat_memory schema must exist"
+    assert "records" in consolidate_tool["parameters"]["properties"]
+    assert "events" in consolidate_tool["parameters"]["properties"]
+    assert "summary" in consolidate_tool["parameters"]["properties"]
 
     # 3. Check compact_wait retains member_dossiers AND injects prompt guidance into reminders
     sample_packet = {
@@ -353,7 +441,7 @@ def test_mcp_integration():
     assert "member_dossiers" in compacted["chat_guidance"]
     assert compacted["chat_guidance"]["member_dossiers"] == ["【群友档案：孩董】外号: 妃姬杯 | XP: 🐻男"]
     assert any("小本本画像" in r for r in compacted["chat_guidance"]["reminders"]), "compact_wait must deliver dynamic memory reminder to Agent"
-    print("✓ 9. MCP 协议端工具声明、参数校验与 compact_wait 交付及提示词注入测试通过")
+    print("✓ 10. MCP 协议端工具声明、参数校验与 compact_wait 交付及提示词注入测试通过")
 
 
 def main():
@@ -370,9 +458,10 @@ def main():
         test_idle_digest(tmp_dir)
         test_l1_context_generation(tmp_dir)
         test_l2_dossier_and_boundary_rules(tmp_dir)
+        test_native_dossier_updates_and_consolidation(tmp_dir)
         test_mcp_integration()
     print("========================================================================")
-    print("✓ 全部 9 项核心测试均通过！")
+    print("✓ 全部 10 项核心测试均通过！")
     print("========================================================================")
 
 
