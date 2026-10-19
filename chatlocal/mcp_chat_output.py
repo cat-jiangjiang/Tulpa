@@ -18,6 +18,12 @@ def compact_wait(data,known_prompt_version=None):
     else:hints.append('先判断对谁说；plan_chat_reply 后直接 send_chat_reply，一并提交 expression_ids 与 bubbles。首条文字气泡带 "quote": true 开启 QQ 原生引用回复精准指向该群友。')
     if active and state.get('may_be_unfinished'):hints.append('最后一句可能没说完，先等短窗口听后续。')
     if active and state.get('consecutive_own_messages',0)>=2:hints.append('自己的话较密，先让别人接；被追问时仍可回应。')
+    if active:
+        if state.get('repeated_phrases'):
+            phrases_str = '、'.join(f'“{p}”' for p in state['repeated_phrases'])
+            hints.append(f'【防语癖固化】最近发言连续出现重复尾缀（如 {phrases_str}），本次请务必变换句式与表达，严禁继续机械使用同一词尾。')
+        else:
+            hints.append('【表达去模板化】拒绝单一尾缀与口癖固化（如连续以“草”、“难绷”、“乐”结尾），根据语境灵活变换句式与语气。')
     if state.get('image_events'):hints.append('先看图片与 materials 映射，按 materials.note 区分失败补读与客户端图片接入限制。')
     guidance={k:full[k] for k in ('prompt_version','persona_name','capabilities') if k in full}
     if known_prompt_version and known_prompt_version==full.get('prompt_version'):

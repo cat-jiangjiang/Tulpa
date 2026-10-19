@@ -179,6 +179,20 @@ def social_state(row, recent, batch, *, now=None):
             break
         consecutive += 1
     last = batch[-1] if batch else {}
+
+    repeated_phrases = []
+    own_texts = [str(m.get('content', '')).strip() for m in own[-5:] if str(m.get('content', '')).strip()]
+    if len(own_texts) >= 2:
+        COMMON_HABITS = ("草", "难绷", "蚌埠住了", "乐", "笑死", "确实", "6", "？", "好活", "离谱", "绝了", "真的假的", "笑嘻了")
+        matches = {}
+        for t in own_texts:
+            for habit in COMMON_HABITS:
+                if t.endswith(habit) or t == habit:
+                    matches[habit] = matches.get(habit, 0) + 1
+        for habit, count in matches.items():
+            if count >= 2:
+                repeated_phrases.append(habit)
+
     return dict(observation='仅本会话已交付的最近事件；未读取的下一页不参与判断。指向来自 @ / 引用，昵称与自然语言指代由你结合原文判断。',
                 window_seconds=180, observed_messages=len(window), own_messages=len(own),
                 other_speakers=len({m.get('sender_id') for m in window if not m.get('is_self')}),
@@ -186,6 +200,7 @@ def social_state(row, recent, batch, *, now=None):
                 last_own_seconds_ago=round(max(0, now-float(own[-1]['received_at']))) if own else None,
                 addressed_event_ids=addressed, other_or_unknown_addressed_event_ids=to_others,
                 may_be_unfinished=bool(last and not last.get('is_self') and UNFINISHED.search(last.get('content',''))),
+                repeated_phrases=repeated_phrases,
                 image_events=images[:8], topic_note=row.get('note', '')[:1500])
 
 
@@ -207,6 +222,12 @@ def packet(row, recent, batch, *, event='messages', has_more=False, stickers=Non
         hints.append('最后一句可能没说完，先等一次短窗口听后续；这只是提示，不是确定的语义结论。')
     if state['consecutive_own_messages'] >= 2 or (len(recent) >= 6 and state['own_messages'] >= 4 and state['own_messages'] > state['observed_messages']/2):
         hints.append('最近自己的话较密，优先让别人接；被明确追问时仍可正常回应。')
+    if state.get('repeated_phrases'):
+        phrases_str = '、'.join(f'“{p}”' for p in state['repeated_phrases'])
+        hints.append(f'【防语癖固化】注意：最近发言多次出现重复尾缀/单字口癖（如 {phrases_str}）。本次发言请务必更换句式、语气与词尾，严禁机械重复既有口癖，保持表达丰富鲜活，防止自回归对话陷入复读固化。')
+    else:
+        hints.append('【表达去模板化】拒绝单一尾缀与口癖固化（如连续以“草”、“难绷”、“乐”单字或结尾）。每次发言根据当前语境灵活变换句式、语气与字数，可以反问、陈述细节、轻度调侃或使用表情包，杜绝复读机式自回归强化。')
+
     if not scope.get('chat_images'):
         hints.append('本连接未授权看图，图片只有占位，不据此猜画面。')
     elif state['image_events']:
