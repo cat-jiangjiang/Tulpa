@@ -45,13 +45,20 @@ def get_onebot_groups(url, token):
     return []
 
 def get_active_sessions(db_path):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    db = conn.cursor()
-    rows = db.execute("SELECT id, conversation_id, name, active, persona_preset, persona_name, persona, participation FROM chat_sessions WHERE active=1").fetchall()
-    sessions = {r["conversation_id"]: dict(r) for r in rows}
-    conn.close()
-    return sessions
+    if not os.path.exists(db_path):
+        return {}
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        db = conn.cursor()
+        rows = db.execute("SELECT id, conversation_id, name, active, persona_preset, persona_name, persona, participation FROM chat_sessions WHERE active=1").fetchall()
+        sessions = {r["conversation_id"]: dict(r) for r in rows}
+        conn.close()
+        return sessions
+    except Exception as e:
+        print(f"[Info] 会话数据库尚未初始化或无活动会话: {e}")
+        return {}
+
 
 def inspect_and_sync():
     # 1. 自动同步角色卡 Markdown

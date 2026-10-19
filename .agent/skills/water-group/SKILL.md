@@ -39,7 +39,7 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
      python water-group/sync_personas.py
      python water-group/sync_groups.py
      ```
-   - 查看 [`water-group/status.json`](file:///c:/Users/VerNe/Downloads/Documents/Tulpa/water-group/status.json) 获取各群的 `session_id` 和 `trigger_mode`：
+   - 查看 `water-group/status.json` 获取各群的 `session_id` 和 `trigger_mode`：
      - **大群 (trigger_mode 为 `mention_only`)**：仅被@或点名触发。
      - **小群 (trigger_mode 为 `natural`)**：自然接话。
 2. **激活未开启的群**：

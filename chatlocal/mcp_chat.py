@@ -17,6 +17,26 @@ from .onebot_events import EventReceiver
 from . import mcp_chat_prompts as prompts
 from .mcp_chat_turns import ChatTurns, TOOLS as TURN_TOOLS, schema as turn_schemas
 from .mcp_language_learning import ChatLearning, TOOLS as LEARNING_TOOLS, schemas as learning_schemas
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_WATER_GROUP_CONFIG_CACHE = {'mtime': 0, 'path': None, 'data': {}}
+
+
+def load_water_group_config():
+    cfg_file = PROJECT_ROOT / 'water-group' / 'config.json'
+    example_file = PROJECT_ROOT / 'water-group' / 'config.example.json'
+    target = cfg_file if cfg_file.exists() else (example_file if example_file.exists() else None)
+    if not target:
+        return {}
+    try:
+        mtime = target.stat().st_mtime
+        if mtime != _WATER_GROUP_CONFIG_CACHE['mtime'] or target != _WATER_GROUP_CONFIG_CACHE['path']:
+            with open(target, 'r', encoding='utf-8') as f:
+                _WATER_GROUP_CONFIG_CACHE['data'] = json.load(f)
+            _WATER_GROUP_CONFIG_CACHE['mtime'] = mtime
+            _WATER_GROUP_CONFIG_CACHE['path'] = target
+        return _WATER_GROUP_CONFIG_CACHE['data']
+    except Exception:
+        return _WATER_GROUP_CONFIG_CACHE.get('data', {})
 
 
 CHAT_TOOLS = {'start_chat_session', 'get_chat_session', 'list_chat_sessions', 'read_chat_forward',
@@ -205,15 +225,16 @@ class MCPChat:
 
     def sync_session_persona(self, sid, gid, row):
         try:
-            with open('water-group/config.json', 'r', encoding='utf-8') as _cf:
-                _cfg = json.load(_cf)
+            _cfg = load_water_group_config()
+            if not _cfg:
+                return row
             _gid = row['conversation_id'].split(':')[-1]
             _group_cfg = _cfg.get('groups', {}).get(_gid)
             if not _group_cfg:
                 return row
             _target_persona = _group_cfg.get('persona') or _cfg.get('default_persona')
             if _target_persona:
-                _src = Path('water-group/personas') / f'{_target_persona}.md'
+                _src = PROJECT_ROOT / 'water-group' / 'personas' / f'{_target_persona}.md'
                 _dst = prompts.ROOT / f'{_target_persona}.md'
                 if _src.exists() and (not _dst.exists() or _src.stat().st_mtime > _dst.stat().st_mtime):
                     shutil.copy2(_src, _dst)
@@ -226,6 +247,7 @@ class MCPChat:
         except Exception:
             pass
         return row
+
 
     @timing.stage('chat.validate')
     def validate(self, sid, gid, active=True):
@@ -688,82 +710,94 @@ class MCPChat:
                         with self.access.connect() as db:
                             own_rows=db.execute("SELECT message_id FROM chat_inbox WHERE session_id=? AND coalesce(json_extract(payload,'$.is_self'),0)=1 ORDER BY id DESC LIMIT 50",(sid,)).fetchall()
                             own_ids={str(r[0]) for r in own_rows}
+                        cfg = load_water_group_config()
+                        gid_str = row['conversation_id'].split(':')[-1]
+                        group_cfg = cfg.get('groups', {}).get(gid_str, {})
                         names = []
-                        try:
-                            with open('water-group/config.json', 'r', encoding='utf-8') as _f:
-                                cfg_names = json.load(_f).get('self_names')
-                                if isinstance(cfg_names, list) and cfg_names:
-                                    names = [str(n) for n in cfg_names if n]
-                        except Exception:
-                            pass
-                        if not names:
-                            p_name = row.get('persona_name')
-                            if p_name and p_name != '自定义人格':
-                                names.append(p_name)
-                        keywords = set(names)
+                        cfg_names = cfg.get('self_names')
+                        if isinstance(cfg_names, list):
+                            names.extend(str(n) for n in cfg_names if n)
+                        grp_names = group_cfg.get('self_names') or group_cfg.get('wake_words')
+                        if isinstance(grp_names, list):
+                            names.extend(str(n) for n in grp_names if n)
+                        p_name = row.get('persona_name')
+                        if p_name and p_name != '自定义人格':
+                            names.append(p_name)
+                            for part in p_name.split():
+                                if part:
+                                    names.append(part)
+                        keywords = {k.casefold() for k in names if k}
                         if account:
-                            keywords.add(account)
-                        kw_list=[k.casefold() for k in keywords if k]
+                            keywords.add(account.casefold())
+                        cfg_account = str(cfg.get('self_account') or '')
+                        if cfg_account and not cfg_account.startswith('YOUR_'):
+                            keywords.add(cfg_account.casefold())
+                        kw_list = [k for k in keywords if k]
                         for r in pending:
-                            payload=json.loads(r['payload'])
-                            if payload.get('is_self'):continue
-                            segs=payload.get('segments',[])
-                            if any(s.get('type')=='at' and str(s.get('qq','')) in (account,'all') for s in segs):
-                                has_mention=True;break
-                            if any(s.get('type')=='reply' and str(s.get('onebot_message_id','')) in own_ids for s in segs):
-                                has_mention=True;break
-                            txt=(payload.get('content','') or payload.get('text',''))+" "+" ".join(s.get('text','') for s in segs if s.get('type')=='text')
-                            txt_lower=txt.casefold()
+                            payload = json.loads(r['payload'])
+                            if payload.get('is_self'):
+                                continue
+                            segs = payload.get('segments', [])
+                            if any(s.get('type') == 'at' and str(s.get('qq', '')) in (account, cfg_account, 'all') for s in segs):
+                                has_mention = True
+                                break
+                            if any(s.get('type') == 'reply' and str(s.get('onebot_message_id', '')) in own_ids for s in segs):
+                                has_mention = True
+                                break
+                            txt = (payload.get('content', '') or payload.get('text', '')) + " " + " ".join(s.get('text', '') for s in segs if s.get('type') == 'text')
+                            txt_lower = txt.casefold()
                             if any(kw in txt_lower for kw in kw_list):
-                                has_mention=True;break
+                                has_mention = True
+                                break
 
                     if has_mention:
-                        dialogue_window['remaining_followups']=followup_turns
-                        dialogue_window['active_until']=time.monotonic()+followup_seconds
+                        dialogue_window['remaining_followups'] = followup_turns
+                        dialogue_window['active_until'] = time.monotonic() + followup_seconds
 
-                    is_in_dialogue=bool(dialogue_window.get('remaining_followups',0)>0 and time.monotonic()<dialogue_window.get('active_until',0))
+                    is_in_dialogue = bool(dialogue_window.get('remaining_followups', 0) > 0 and time.monotonic() < dialogue_window.get('active_until', 0))
 
-                    if not has_mention and not is_in_dialogue and now<end:
-                        if len(pending)>15:
-                            trim_through=pending[-10]['id']
+                    if not has_mention and not is_in_dialogue and now < end:
+                        if len(pending) > 15:
+                            trim_through = pending[-10]['id']
                             with self.access.connect() as db:
-                                db.execute('UPDATE chat_sessions SET cursor=? WHERE id=? AND active=1',(trim_through,sid))
+                                db.execute('UPDATE chat_sessions SET cursor=? WHERE id=? AND active=1', (trim_through, sid))
                             continue
 
-                collection=self.turns.collection(row,pending,quiet,collecting_since)
-                waiting=self.turns.waiting(sid)
-                new_input=False
+                collection = self.turns.collection(row, pending, quiet, collecting_since)
+                waiting = self.turns.waiting(sid)
+                new_input = False
                 if waiting:
                     with self.access.connect() as db:
-                        live=db.execute("SELECT 1 FROM chat_inbox WHERE session_id=? AND id>? AND id<=? AND coalesce(json_extract(payload,'$.recalled'),0)=0 LIMIT 1",
-                            (sid,row['cursor'],waiting['watermark'])).fetchone()
-                        new_input=bool(db.execute('SELECT 1 FROM chat_inbox WHERE session_id=? AND id>? LIMIT 1',(sid,waiting['watermark'])).fetchone())
+                        live = db.execute("SELECT 1 FROM chat_inbox WHERE session_id=? AND id>? AND id<=? AND coalesce(json_extract(payload,'$.recalled'),0)=0 LIMIT 1",
+                            (sid, row['cursor'], waiting['watermark'])).fetchone()
+                        new_input = bool(db.execute('SELECT 1 FROM chat_inbox WHERE session_id=? AND id>? LIMIT 1', (sid, waiting['watermark'])).fetchone())
                 if waiting and not live:
                     with self.access.connect() as db:
-                        db.execute("UPDATE chat_turn_plans SET state='CANCELLED',reason='input_unavailable' WHERE session_id=? AND state='WAITING'",(sid,))
-                    waiting=None
-                deferred=bool(waiting and time.time()<waiting['not_before'] and not new_input)
-                learning=self.learning.wake(grant,row) if allow_learning and not pending and not notices and now>=earliest else dict(ready=False)
+                        db.execute("UPDATE chat_turn_plans SET state='CANCELLED',reason='input_unavailable' WHERE session_id=? AND state='WAITING'", (sid,))
+                    waiting = None
+                deferred = bool(waiting and time.time() < waiting['not_before'] and not new_input)
+                learning = self.learning.wake(grant, row) if allow_learning and not pending and not notices and now >= earliest else dict(ready=False)
 
-                ready_to_return=False
+                ready_to_return = False
                 if mention_only:
-                    if (has_mention or is_in_dialogue) and (len(pending)>limit or collection['ready']):
-                        ready_to_return=True
-                        if not has_mention and is_in_dialogue:
-                            dialogue_window['remaining_followups']-=1
-                            dialogue_window['active_until']=time.monotonic()+followup_seconds
+                    if (has_mention or is_in_dialogue) and (len(pending) > limit or collection['ready']):
+                        ready_to_return = True
                 else:
-                    if (len(pending)>limit or collection['ready']) or (notices and now-changed_at>=quiet) or learning['ready']:
-                        ready_to_return=True
+                    if (len(pending) > limit or collection['ready']) or (notices and now - changed_at >= quiet) or learning['ready']:
+                        ready_to_return = True
 
-                if (now>=earliest and pending and not deferred and ready_to_return) or now>=end:
-                    if mention_only and not has_mention and not is_in_dialogue and now>=end:
-                        if pending:
-                            through=pending[-1]['id']
-                            with self.access.connect() as db:
-                                db.execute('UPDATE chat_sessions SET cursor=?,offered=max(offered,?) WHERE id=? AND active=1',(through,through,sid))
-                                db.executemany('UPDATE chat_inbox SET delivered=1 WHERE session_id=? AND id=?',[(sid,m['id']) for m in pending])
-                            pending=[]
+                if (now >= earliest and pending and not deferred and ready_to_return) or now >= end:
+                    if mention_only:
+                        if not has_mention and not is_in_dialogue and now >= end:
+                            if pending:
+                                through = pending[-1]['id']
+                                with self.access.connect() as db:
+                                    db.execute('UPDATE chat_sessions SET cursor=?,offered=max(offered,?) WHERE id=? AND active=1', (through, through, sid))
+                                    db.executemany('UPDATE chat_inbox SET delivered=1 WHERE session_id=? AND id=?', [(sid, m['id']) for m in pending])
+                                pending = []
+                        elif not has_mention and is_in_dialogue and ready_to_return:
+                            dialogue_window['remaining_followups'] -= 1
+                            dialogue_window['active_until'] = time.monotonic() + followup_seconds
                     items=self.details.enrich(grant,row,self.messages(pending[:limit] if not deferred else []),cancel)
                     through=items[-1]['id'] if items else max(row['cursor'],row['dropped_through'])
                     with self.lock:

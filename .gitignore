@@ -32,7 +32,9 @@ node_modules/
 /instances/
 
 # Water-group local configurations and sensitive runtime data
+config.json
 water-group/config.json
 water-group/status.json
 water-group/logs/
-*yu_bao.md
+*yu_bao*
+

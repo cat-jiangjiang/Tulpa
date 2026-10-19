@@ -32,12 +32,11 @@ ADDRESSING = '''发言默认普通文本，不带引用或 @。reply_to_event_id
 def _persona_name(preset, text):
     heading = next((line[2:].strip().rstrip('#').strip() for line in text.splitlines()
                     if line.startswith('# ') and line[2:].strip()), '')
-    if preset == 'little_whale' and heading == '角色卡：DeepSeek 小鲸鱼 —— QQ 群友版':
-        return '小鲸鱼'
     m = re.match(r'^角色卡[：:]\s*(?:DeepSeek\s+)?(.+?)(?:\s*——.*)?$', heading)
     if m:
         return m.group(1).strip()[:160]
     return (heading or preset)[:160]
+
 
 
 def persona_name(row):
