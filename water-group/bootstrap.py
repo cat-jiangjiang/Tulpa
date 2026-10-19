@@ -148,6 +148,16 @@ def main():
     print("\n4. 正在同步群列表与角色卡...")
     sync_res = run_sync()
 
+    print("\n5. 正在装载群友动态小本本记忆库...")
+    try:
+        from memory_engine import get_memory_engine
+        mem_engine = get_memory_engine()
+        mem_engine.seed_from_persona()
+        mem_count = mem_engine.get_member_count()
+        print(f"✓ 群友动态记忆库就绪 : 已建立 {mem_count} 位核心群友档案 (时月/孩董等)，支持小本本自动记录与检索")
+    except Exception as e:
+        print(f"[Warn] 加载群友记忆库异常: {e}")
+
     ready_groups = []
     if STATUS_FILE.exists():
         try:
@@ -216,6 +226,7 @@ def main():
         print(f"       \"timeout_seconds\": 150,")
         print(f"       \"mention_only\": {str(mention_only_bool).lower()}")
         print(f"     }}")
+        print("  4. 动态小本本记忆已挂载：发言群友的精简画像会自动出现在 chat_guidance.member_dossiers 中；群友说“记在小本本上”会自动入库；随时可调用 query_member_dossier 查询群友档案与专属八卦；回复时多结合对方外号与历史黑料调侃！")
         print("------------------------------------------------------------------------")
         
         output_payload = {

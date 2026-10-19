@@ -40,7 +40,7 @@ def load_water_group_config():
 
 
 CHAT_TOOLS = {'start_chat_session', 'get_chat_session', 'list_chat_sessions', 'read_chat_forward',
-              'wait_chat_messages', 'send_chat_message', 'stop_chat_session', 'list_chat_groups', 'list_chat_friends', 'list_chat_personas', 'react_to_chat_message'} | TURN_TOOLS | LEARNING_TOOLS
+              'wait_chat_messages', 'send_chat_message', 'stop_chat_session', 'list_chat_groups', 'list_chat_friends', 'list_chat_personas', 'react_to_chat_message', 'query_member_dossier'} | TURN_TOOLS | LEARNING_TOOLS
 CHAT_INSTRUCTIONS = '''这是用户明确开启的持续聊天，不设总时长；直到用户停止、权限失效或客户端退出。
 开始即在当前机器人账号与授权会话内边聊边学，保留之前明确暂停的偏好；只学习本次实时他人消息，不读历史或更换模型目的地。好友私聊使用 ACCOUNT:direct:QQ，群聊使用 ACCOUNT:group:GROUP；不发送临时会话。
 统一循环：wait 收到消息先做 Planner；silence 仅结束本轮发言决定，确认处理进度后继续 wait，绝不退出水群。Planner 的 WAITING 只是暂缓决定，不确认本批完成；沿 next_call 等待，到期或新输入时程序重新交付可规划批次。wait 返回 learning_ready 时领取一个阶段；claim 返回 task 时，用下一次实际模型调用完成并沿 task.submit_call 提交。claim/submit 附 updated_chat 时直接沿 next_call 先聊天；未领取任务或已提交且无附带聊天时回 wait。每次只推进一个阶段，不连续领取，无需用户另给学习口令。
@@ -102,6 +102,11 @@ def schemas(tool):
                                         description='确实需要点名的群成员 QQ 号，如消息 sender_id；发送前核对成员身份。不接受昵称或 all，和引用独立。')),
              ['session_id','text','idempotency_key']),
         tool('stop_chat_session', '立即停止本连接的持续聊天并唤醒等待者，取消尚未派发的回复；不撤销其他工具权限。已经交给 QQ 的消息无法撤回。重复停止安全。', sid, ['session_id']),
+        tool('query_member_dossier', '查询指定群友的小本本记忆与专属档案（包括外号、XP喜好、说话习惯与群内历史八卦）。在群友发问“你还记得我吗”、“我喜欢什么”、“你小本本记了啥”或需要精确调侃时调用。',
+             dict(identifier=dict(type='string', description='群友 QQ 号、群名片、昵称或外号（如“孩董”、“时月”、“criss”）'),
+                  group_id=dict(type='string', description='当前群号（可选，用于过滤群内专属八卦事件）'),
+                  session_id=dict(type='string', description='当前持续聊天会话编号（可选，自动推导群号）')),
+             ['identifier']),
     ]
     next(s for s in rows if s['name']=='send_chat_message')['parameters']['properties']['plan_id']=dict(type='string',minLength=32,maxLength=32,description='plan_chat_reply 返回的 READY 计划；缺少时拒绝发送。')
     next(s for s in rows if s['name']=='send_chat_message')['parameters']['properties']['expression_ids']=dict(type='array',maxItems=5,uniqueItems=True,
@@ -363,6 +368,25 @@ class MCPChat:
         packet['reaction_notices']=notices
         learning=self.learning.hint(grant,row)
         if learning:packet['language_learning']=learning
+        # Tier 1 L1 Context injection for active speakers
+        try:
+            speaker_ids = [m.get('sender_id') for m in items if not m.get('is_self') and m.get('sender_id')]
+            speaker_names = [m.get('sender') for m in items if not m.get('is_self') and m.get('sender')]
+            if speaker_ids or speaker_names:
+                import sys
+                wg_dir = str(PROJECT_ROOT / 'water-group')
+                if wg_dir not in sys.path:
+                    sys.path.insert(0, wg_dir)
+                from memory_engine import get_memory_engine
+                engine = get_memory_engine()
+                gid = row['conversation_id'].split(':')[-1]
+                l1_cards = engine.build_l1_context(gid, speaker_ids, speaker_names)
+                if l1_cards:
+                    packet['member_dossiers'] = l1_cards
+                    if 'reminders' in packet:
+                        packet['reminders'].append('已自动加载发言群友的小本本画像，可自然使用其外号、XP喜好与核心记忆针对性调侃（偶尔可用“我小本本上可记着...”），严禁客服腔。')
+        except Exception:
+            pass
         if row['active']:
             packet['continue_with']=dict(self.continuation(row['id'],through=through),when='处理完本批后直接调用；不要为了等待再提交空规划。')
         return packet
@@ -498,7 +522,17 @@ class MCPChat:
                         db.execute('DELETE FROM chat_inbox WHERE session_id=? AND id<?',(row['id'],cutoff[0]))
             signal=self.events.get(row['id'])
             if signal:signal.set()
-            if inserted:self.learning.observe(row,payload)
+            if inserted:
+                self.learning.observe(row,payload)
+                try:
+                    import sys
+                    wg_dir = str(PROJECT_ROOT / 'water-group')
+                    if wg_dir not in sys.path:
+                        sys.path.insert(0, wg_dir)
+                    from memory_engine import get_memory_engine
+                    get_memory_engine().observe_message(row['conversation_id'].split(':')[-1], payload)
+                except Exception:
+                    pass
 
     def start(self, grant, args, cancel):
         self.permission(grant)
@@ -814,6 +848,20 @@ class MCPChat:
                     status=self.receiver.status()
                     ready=status['state']=='connected' and status['account']==row['conversation_id'].split(':')[0]
                     kind='messages' if items else 'reactions' if notices and ready else 'learning_ready' if learning['ready'] and ready else 'idle' if ready else 'source_unavailable'
+                    if kind == 'idle':
+                        try:
+                            import sys
+                            wg_dir = str(PROJECT_ROOT / 'water-group')
+                            if wg_dir not in sys.path:
+                                sys.path.insert(0, wg_dir)
+                            from memory_engine import get_memory_engine
+                            with self.access.connect() as _db:
+                                _recent_rows = _db.execute('SELECT payload FROM chat_inbox WHERE session_id=? ORDER BY id DESC LIMIT 20', (sid,)).fetchall()
+                            if _recent_rows:
+                                _recent_payloads = [json.loads(_r['payload']) for _r in reversed(_recent_rows)]
+                                get_memory_engine().digest_idle_batch(row['conversation_id'].split(':')[-1], _recent_payloads)
+                        except Exception:
+                            pass
                     result=dict(event=kind,session_id=sid,messages=items,read_through_id=through,
                                 has_more=not deferred and len(pending)>len(items),continue_waiting=True,acknowledged_sent_echoes=echoes,
                                 receiver=status,gap_count=row['gap_count'],gap_note='接收曾中断或缓存溢出，不保证消息完整。' if row['gap_count'] else '',
@@ -936,4 +984,23 @@ class MCPChat:
         if name=='plan_chat_reply':return self.turns.plan(grant,args,cancel)
         if name=='send_chat_reply':return self.turns.submit(grant,args,cancel)
         if name in ('send_chat_message','react_to_chat_message'):return self.turns.single(grant,name,args,cancel)
+        if name=='query_member_dossier':return self.query_member_dossier(grant,args)
         raise ValueError('未知持续聊天操作。')
+
+    def query_member_dossier(self, grant, args):
+        self.permission(grant)
+        import sys
+        wg_dir = str(PROJECT_ROOT / 'water-group')
+        if wg_dir not in sys.path:
+            sys.path.insert(0, wg_dir)
+        from memory_engine import get_memory_engine
+        engine = get_memory_engine()
+        gid = args.get('group_id')
+        if not gid and args.get('session_id'):
+            try:
+                row = self.row(args['session_id'])
+                gid = row['conversation_id'].split(':')[-1]
+            except Exception:
+                pass
+        return engine.query_member_dossier(args['identifier'], group_id=gid)
+

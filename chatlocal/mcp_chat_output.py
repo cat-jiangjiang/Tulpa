@@ -35,6 +35,7 @@ def compact_wait(data,known_prompt_version=None):
     guidance['reaction_notices']={k:notices.get(k,[]) for k in ('items','new_items')}
     learning=full.get('language_learning')
     if learning:guidance['language_learning']={k:learning[k] for k in ('enabled','automatic') if k in learning}
+    if 'member_dossiers' in full:guidance['member_dossiers']=full['member_dossiers']
     result={k:v for k,v in data.items() if k not in ('chat_guidance','note')}
     result['chat_guidance']=guidance
     if 'receiver' in result:
