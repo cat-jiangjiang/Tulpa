@@ -30,7 +30,7 @@
   async function refreshStatus(){
     const s=await api('/api/artifacts/status');status.textContent=`QQ ${s.counts.qq||0} 个来源 · 微信 ${s.counts.wechat||0} 个来源 · 原文件缓存 ${size(s.cache_bytes)}。${s.note}`;
     const selected=conversation.value;conversation.replaceChildren(new Option('全部会话',''));
-    for(const c of s.conversations){if(platform.value&&c.platform!==platform.value)continue;conversation.append(new Option(`${c.platform==='qq'?'QQ':'微信'} · ${c.conversation}`,JSON.stringify([c.platform,c.conversation_id])));}
+    for(const c of s.conversations){if(platform.value&&c.platform!==platform.value)continue;conversation.append(new Option(`${platformLabel(c.platform)} · ${c.conversation}`,JSON.stringify([c.platform,c.conversation_id])));}
     conversation.value=selected;
     inventory.disabled=!s.onebot_configured;
     inventory.title=s.onebot_configured?'只同步元数据，不下载正文':'需要配置本机OneBot接口';
@@ -43,7 +43,7 @@
     if(!append)list.replaceChildren();next=d.next_offset;more.hidden=!d.has_more;
     result.textContent=`找到 ${d.match_count} 项。${d.note}`;
     for(const f of d.files){const row=el('article',undefined,'artifact-row');const button=el('button',f.filename,'source-button');button.onclick=()=>show(f.id);row.append(button,
-      el('p',`${f.platform==='qq'?'QQ':'微信'} · ${f.conversation} · ${f.sender} · ${f.time}`,'answer-note'),
+      el('p',`${platformLabel(f.platform)} · ${f.conversation} · ${f.sender} · ${f.time}`,'answer-note'),
       el('p',`${size(f.size)} · ${state(f)} · ${f.folder||'聊天附件'}`,'answer-note'));
       if(f.text)row.append(el('p',f.text.slice(0,260)));list.append(row);}
   }
@@ -57,7 +57,7 @@
   }
   async function show(id){
     current=id;const f=await api('/api/artifacts/'+id);detail.replaceChildren(el('h3',f.filename),
-      el('p',`${f.platform==='qq'?'QQ':'微信'} · ${f.conversation} · ${f.sender} · ${f.time}`),
+      el('p',`${platformLabel(f.platform)} · ${f.conversation} · ${f.sender} · ${f.time}`),
       el('p',`${size(f.size)} · ${state(f)}`));
     const buttons=el('div',undefined,'artifact-actions');
     const save=el('button','保存文件来源','collect-evidence source-button');save.dataset.sourceType='artifact_source';save.dataset.sourceId=id;buttons.append(save);

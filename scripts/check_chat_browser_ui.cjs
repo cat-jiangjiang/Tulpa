@@ -40,6 +40,7 @@ async function fetch(path){
 let timer=0;const timers=new Set(),browserWindow={};
 const ctx=vm.createContext({console,assert,$:el,document:doc,window:browserWindow,fetch,AbortSignal,URLSearchParams,
   renderVoice:()=>new Element('audio'),setTimeout:()=>{timers.add(++timer);return timer;},clearTimeout:id=>timers.delete(id)});
+vm.runInContext(fs.readFileSync('web/platform-label.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync('web/chat.js','utf8'),ctx);
 const run=s=>vm.runInContext(s,ctx),add=()=>{rows=[...rows,{...rows.at(-1),id:rows.length+1,timestamp:1000+rows.length,content:'新消息 '+rows.length}];sequence++;};
 (async()=>{

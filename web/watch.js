@@ -33,7 +33,7 @@ function watchTime(value) {
 }
 function scopeName(card) {
   const labels=card.conversation_scope.map(value=>state.conversations.find(c=>JSON.stringify(JSON.parse(c[1]))===JSON.stringify(JSON.parse(value)))?.[0]||JSON.parse(value)[1]);
-  return card.platform_scope.map(p=>p==='qq'?'QQ':'微信').join(' + ')+' · '+(labels.length?labels.join('、'):'全部会话');
+  return card.platform_scope.map(p=>platformLabel(p)).join(' + ')+' · '+(labels.length?labels.join('、'):'全部会话');
 }
 function selectedWatch() {return watchCards.find(c=>c.id===state.watchId);}
 function setWatchSidebarExpanded(expanded,remember=true) {
@@ -171,8 +171,8 @@ function renderWatchThread(forceBottom=false) {
 }
 async function loadWatches() {
   const [cards,sync]=await Promise.all([watchApi('/api/watch-cards'),watchApi('/api/refresh-status')]);watchCards=cards.cards;
-  $('sync-summary').textContent='最近一次刷新：'+sync.platforms.map(p=>`${p.platform==='qq'?'QQ':'微信'} ${p.status==='error'?'刷新失败':p.status==='running'?'刷新中':p.last_sync_at?('+'+p.added+' · '+p.last_sync_at.slice(11,16)):'尚未刷新'}`).join(' / ');
-  $('sync-summary').title=sync.platforms.map(p=>`${p.platform==='qq'?'QQ':'微信'}：${p.detail}；最后成功同步 ${p.last_sync_at||'无'}`).join('\n');
+  $('sync-summary').textContent='最近一次刷新：'+sync.platforms.map(p=>`${platformLabel(p.platform)} ${p.status==='error'?'刷新失败':p.status==='running'?'刷新中':p.last_sync_at?('+'+p.added+' · '+p.last_sync_at.slice(11,16)):'尚未刷新'}`).join(' / ');
+  $('sync-summary').title=sync.platforms.map(p=>`${platformLabel(p.platform)}：${p.detail}；最后成功同步 ${p.last_sync_at||'无'}`).join('\n');
   if(!autoRefreshSaving){$('auto-refresh').value=sync.auto_refresh.minutes;$('auto-refresh-stickers').checked=sync.auto_refresh.load_stickers;}
   renderWatches();
   if(state.watchId && !selectedWatch()) {leaveWatch();$('messages').replaceChildren();renderMessages();renderHistory();updateRange();}
@@ -193,7 +193,7 @@ async function monitorWatchJob(id,seed={}) {
       syncControls();
       if(job.status!=='running') {
         if(job.status==='error') throw new Error(job.error);
-        const label=job.result?.summary||(Array.isArray(job.result)?job.result.map(r=>`${r.platform==='qq'?'QQ':'微信'} ${r.status==='ok'?'+'+r.added:r.detail}${r.timing?.total_seconds!=null?' · '+Number(r.timing.total_seconds).toFixed(1)+' 秒':''}`).join(' / '):job.kind==='question'?'已回答':watchCaption(job.result));
+        const label=job.result?.summary||(Array.isArray(job.result)?job.result.map(r=>`${platformLabel(r.platform)} ${r.status==='ok'?'+'+r.added:r.detail}${r.timing?.total_seconds!=null?' · '+Number(r.timing.total_seconds).toFixed(1)+' 秒':''}`).join(' / '):job.kind==='question'?'已回答':watchCaption(job.result));
         $('watch-job-status').textContent=label;
         if(['read','catalog','delete','media-refresh'].includes(job.kind))$('read-progress').textContent=job.events.join('\n')+'\n'+label;
         if(job.kind==='media-refresh')$('media-refresh-result').textContent=label;

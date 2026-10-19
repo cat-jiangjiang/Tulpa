@@ -92,7 +92,7 @@
     serviceState(await api(''));
     const counts=current.data_platforms||{};
     if(!platformsInitialized&&Object.keys(counts).length){for(const p of ['qq','wechat'])$('mcp-'+p).checked=!!counts[p];platformsInitialized=true;}
-    $('mcp-data-status').textContent=Object.keys(counts).length?Object.entries(counts).map(([p,n])=>(p==='qq'?'QQ':'微信')+' '+n.toLocaleString()+' 条本地消息').join(' · '):'历史查询需要导入资料；实时聊天可配置 OneBot 后直接选择群或好友、授权，无需导入。';
+    $('mcp-data-status').textContent=Object.keys(counts).length?Object.entries(counts).map(([p,n])=>platformLabel(p)+' '+n.toLocaleString()+' 条本地消息').join(' · '):'历史查询需要导入资料；实时聊天可配置 OneBot 后直接选择群或好友、授权，无需导入。';
     $('mcp-onebot-status').textContent=current.onebot_configured?'已保存 OneBot 配置；点击检测确认服务在线。':'OneBot 未配置，本地聊天查询仍可使用。公告、精华及群文件可稍后接入。';
     $('mcp-connections').replaceChildren();
     for (const row of current.connections) {

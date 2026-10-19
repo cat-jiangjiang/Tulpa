@@ -20,12 +20,12 @@ async function pollLive() {
     $('live-summary').replaceChildren(...data.platforms.map(p=>{
       const line=document.createElement('span');line.className='live-line '+p.status;
       const dot=document.createElement('i');dot.setAttribute('aria-hidden','true');
-      line.append(dot,document.createTextNode(`${p.platform==='qq'?'QQ':'微信'} ${liveLabel(p,true)}`));
+      line.append(dot,document.createTextNode(`${platformLabel(p.platform)} ${liveLabel(p,true)}`));
       line.title=liveDetail(p)+'；最后收到 '+liveClock(p.last_received);return line;
     }));
-    $('live-summary').title=data.platforms.map(p=>`${p.platform==='qq'?'QQ':'微信'}：${liveLabel(p)}；${liveDetail(p)}；最后收到 ${liveClock(p.last_received)}`).join('\n')+'\n点击查看实时摄取详情';
+    $('live-summary').title=data.platforms.map(p=>`${platformLabel(p.platform)}：${liveLabel(p)}；${liveDetail(p)}；最后收到 ${liveClock(p.last_received)}`).join('\n')+'\n点击查看实时摄取详情';
     $('live-detail').replaceChildren(...data.platforms.map(p=>{
-      const line=document.createElement('p');line.textContent=`${p.platform==='qq'?'QQ':'微信'}：${liveDetail(p)} 最后收到 ${liveClock(p.last_received)}；${p.metrics.seconds==null?'尚未成功完成一轮实时读取':'最近成功读取耗时 '+p.metrics.seconds+' 秒'}。`;return line;
+      const line=document.createElement('p');line.textContent=`${platformLabel(p.platform)}：${liveDetail(p)} 最后收到 ${liveClock(p.last_received)}；${p.metrics.seconds==null?'尚未成功完成一轮实时读取':'最近成功读取耗时 '+p.metrics.seconds+' 秒'}。`;return line;
     }));
     if(!liveEditing) {
       $('live-qq').value=data.settings.qq;$('live-wechat').value=data.settings.wechat;

@@ -10,7 +10,7 @@ function html(edition){
     for(const id of ['data-dialog','chat-dialog','image-dialog'])parts.push(source.match(new RegExp('<dialog id="'+id+'"[\\s\\S]*?<\\/dialog>'))[0]);
     body=fs.readFileSync(path.join(root,'web/mcp-home.html'),'utf8').replace('<!-- shared-forms -->',parts.join('\n'));
   }
-  const keep=['snowluma.js','mcp.js',edition==='lite'?'mcp-home.js':'desktop.js'];
+  const keep=['platform-label.js','snowluma.js','mcp.js',edition==='lite'?'mcp-home.js':'desktop.js'];
   return body.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,tag=>keep.some(name=>tag.includes('/ui/'+name))?tag:'');
 }
 function preview(multiple,httpOnly=false){

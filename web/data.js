@@ -58,7 +58,7 @@ function accountSelectionNote(p) {
 }
 function selectedReadAccount(p) {
   const value=$('read-account-'+p).value;
-  if(!value)throw new Error(`请先选择本机 ${p==='qq'?'QQ':'微信'} 账号；没有选项时请重新检测账号`);
+  if(!value)throw new Error(`请先选择本机 ${platformLabel(p)} 账号；没有选项时请重新检测账号`);
   return value;
 }
 function renderDeleteScope() {
@@ -86,7 +86,7 @@ function clientReadScope() {
   const scope={};
   for(const p of ['qq','wechat']) {
     const selected=$('read-mode-'+p).value==='selected',enabled=$('read-enable-'+p).checked;
-    if(enabled&&selected&&!readSelection[p].size)throw new Error(`请勾选 ${p==='qq'?'QQ':'微信'} 会话，或选择全部会话`);
+    if(enabled&&selected&&!readSelection[p].size)throw new Error(`请勾选 ${platformLabel(p)} 会话，或选择全部会话`);
     scope[p]={enabled,conversations:selected&&readSelection[p].size?[...readSelection[p]]:null};
     if(enabled)scope[p].account=selectedReadAccount(p);
   }
@@ -109,7 +109,7 @@ function clientReadRequest() {
     const start=$('read-'+p+'-start').value,end=$('read-'+p+'-end').value;
     ranges[p]={start,end};
     all_messages[p]=Boolean($('read-all-'+p)?.checked);
-    if(scope[p].enabled&&start&&end&&start>end)throw new Error(`${p==='qq'?'QQ':'微信'} 开始日期不能晚于截止日期`);
+    if(scope[p].enabled&&start&&end&&start>end)throw new Error(`${platformLabel(p)} 开始日期不能晚于截止日期`);
     if(!scope[p].enabled||all_messages[p])limits[p+'_per_chat']=500;
   }
   return {scope,limits,ranges,all_messages,load_stickers:$('load-stickers').checked};
@@ -150,7 +150,7 @@ function renderImportProgress(job){
   bar.hidden=!running&&job.status!=='completed';
   $('import-stop').hidden=!running;$('import-stop').disabled=false;
   const stages={preparing:'准备读取器',snapshot:'制作本次快照',decrypt:'验证并解密数据',strip_header:'准备数据库',inventory:'比较消息标识',reading:'读取消息',waiting_for_commit:'等待当前批次入库',exported:'核对入库结果',committing:'写入消息'};
-  $('import-meter-title').textContent=(p.platform==='qq'?'QQ':'微信')+' · '+(running?(stages[p.stage]||'正在处理'):job.status==='completed'?'本轮处理结束':'已停止或未完成');
+  $('import-meter-title').textContent=(platformLabel(p.platform))+' · '+(running?(stages[p.stage]||'正在处理'):job.status==='completed'?'本轮处理结束':'已停止或未完成');
   // Unknown totals remain indeterminate; never invent a percent during snapshot
   // or declare completion because a single platform/batch finished.
   if(running&&p.expected>0){bar.max=p.expected;bar.value=Math.min(p.scanned||0,p.expected);}
@@ -186,9 +186,9 @@ $('delete-preview').onclick=async()=>{
   try {
     const result=await watchApi('/api/data/delete-preview',body);
     const names=result.all_conversations?`全部会话（${result.conversations} 个会话有匹配记录）`:dataSettings.imported.filter(r=>r.platform===body.platform&&deleteSelection.has(r.conversation_id)).map(r=>r.conversation).join('、');
-    $('delete-summary').textContent=`${body.platform==='qq'?'QQ':'微信'} · ${names} · ${body.start} 至 ${body.end}（含当天）：${result.messages} 条消息，${result.media} 个媒体引用。共享媒体保留。预览 10 分钟内有效。`;
+    $('delete-summary').textContent=`${platformLabel(body.platform)} · ${names} · ${body.start} 至 ${body.end}（含当天）：${result.messages} 条消息，${result.media} 个媒体引用。共享媒体保留。预览 10 分钟内有效。`;
     deleteToken=result.messages?result.token:null;
-    $('delete-confirm').textContent=result.all_conversations?`确认删除 ${body.platform==='qq'?'QQ':'微信'} 全部会话在此范围的 ${result.messages} 条消息`:`确认删除这 ${result.messages} 条消息`;
+    $('delete-confirm').textContent=result.all_conversations?`确认删除 ${platformLabel(body.platform)} 全部会话在此范围的 ${result.messages} 条消息`:`确认删除这 ${result.messages} 条消息`;
   }catch(error){$('delete-summary').textContent=error.message;}
   finally{state.loading=false;syncControls();}
 };

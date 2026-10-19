@@ -41,7 +41,7 @@ function renderChatChoices() {
     const heading=document.createElement('span');heading.className='chat-card-heading';
     const name=document.createElement('strong');name.textContent=c.conversation;
     const time=document.createElement('time');time.dateTime=new Date(c.timestamp).toISOString();time.textContent=c.time.slice(5,16);heading.append(name,time);
-    const platform=document.createElement('span');platform.className='chat-card-platform';platform.textContent=c.platform==='qq'?'QQ':'微信';
+    const platform=document.createElement('span');platform.className='chat-card-platform';platform.textContent=platformLabel(c.platform);
     const preview=document.createElement('span');preview.className='chat-card-preview';preview.textContent=(c.sender?c.sender+'：':'')+c.preview;
     node.title=c.conversation+'\n'+preview.textContent+'\n'+c.time;node.append(heading,platform,preview);
     node.onclick=()=>openChat(null,[c.platform,c.conversation_id],50,0);return node;
@@ -104,7 +104,7 @@ function createChatMessage(message) {
 }
 function updateChatControls() {
   if(!chatPage)return;
-  $('chat-platform').textContent=(chatPage.platform==='qq'?'QQ':'微信')+' · 原始记录';
+  $('chat-platform').textContent=platformLabel(chatPage.platform)+' · 原始记录';
   $('chat-view-title').textContent=chatPage.conversation||'会话暂无本地消息';
   $('chat-location').textContent=(evidenceAnchor?'证据 M'+evidenceAnchor+' · ':'')+`显示 ${chatPage.messages.length} 条消息 · 自动更新已入库内容`;
   $('chat-earlier').disabled=chatLoading||!chatPage.has_before||!chatPage.messages.length;

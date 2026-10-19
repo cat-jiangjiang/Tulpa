@@ -19,7 +19,7 @@ function renderReply(data){
   const old=replySession;replySession=data;
   const t=data.target,busy=!!data.active_run,locked=data.status!=='DRAFT',draft=replyStage==='draft';
   const generationFailed=data.status==='DRAFT'&&data.error&&!busy&&['error','cancelled','interrupted'].includes(data.generations[0]?.status);
-  $('reply-target').textContent=`${t.platform==='qq'?'QQ':'微信'} · ${t.conversation} · 回复 ${t.sender}`;
+  $('reply-target').textContent=`${platformLabel(t.platform)} · ${t.conversation} · 回复 ${t.sender}`;
   $('reply-source').textContent=t.content||'[媒体消息，请结合识图或转写]';
   if(!draft){if($('reply-text').value!==replyInstruction)$('reply-text').value=replyInstruction;}
   else if(!replyDirty||old?.id!==data.id){if($('reply-text').value!==data.final_text)$('reply-text').value=data.final_text;replyDirty=false;}

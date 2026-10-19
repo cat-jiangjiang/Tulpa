@@ -28,7 +28,7 @@
     for(const item of c.items){
       const row=el('article',undefined,'artifact-row');row.append(el('strong',names[item.source_type]||item.source_type));
       if(item.status==='available'){
-        const s=item.source;row.append(el('p',s.title||s.filename||'原始来源'),el('p',[s.platform==='qq'?'QQ':'微信',s.conversation,s.sender||s.publisher].filter(Boolean).join(' · '),'answer-note'));
+        const s=item.source;row.append(el('p',s.title||s.filename||'原始来源'),el('p',[platformLabel(s.platform),s.conversation,s.sender||s.publisher].filter(Boolean).join(' · '),'answer-note'));
         if(s.excerpt)row.append(el('pre',s.excerpt));
         if(s.locator)row.append(el('p',JSON.stringify(s.locator),'answer-note'));
         if(s.media?.available){const img=el('img');img.src=s.media.url;img.alt='证据图片';img.loading='lazy';img.style.maxWidth='220px';img.style.maxHeight='180px';row.append(img);}

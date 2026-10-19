@@ -254,7 +254,7 @@ function updateRange() {
   if(state.workspaceId)return;
   if(state.watchId) {updateWatchHeader();return;}
   const f=state.filters, filtered=JSON.stringify(f)!==JSON.stringify(defaults());
-  const names=f.platforms.map(p => p==='qq'?'QQ':'微信').join(' + ');
+  const names=f.platforms.map(p => platformLabel(p)).join(' + ');
   const range=[names,f.conversations.length?`${f.conversations.length} 个会话`:'全部会话',f.start||f.end?`${f.start||'不限'} 至 ${f.end||'现在'}`:'时间随问题'];
   if (f.keywords) range.push(`关键词：${f.keywords}`);
   $('range-chip').textContent=filtered?'已设置范围':'全部聊天';
