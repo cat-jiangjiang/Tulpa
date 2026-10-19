@@ -18,6 +18,7 @@ from .base import View, esc
 from .forms import ChoiceModal, Field, FormModal, required
 from .jobs import follow
 from .modals import ConfirmModal, Dialog, TextModal
+from .views import flag, kv
 
 M = '/api/desktop/snowluma/managed'
 SCOPE = dict(configure_user_selected_directory_in_place='就地配置你选择的 SnowLuma 文件夹',
@@ -120,10 +121,6 @@ def docker_state(s):
 def folder_form(title, lead):
     return FormModal(title, [Field('folder', 'SnowLuma 文件夹', placeholder='/home/you/SnowLuma（已解压的绝对路径）')],
                      lambda v: required(v['folder'], '文件夹路径', 2048), '检测', lead=lead)
-
-
-def flag(value, yes='是', no='否'):
-    return f'[#22c55e]{yes}[/]' if value else f'[#7f8a9a]{no}[/]'
 
 
 class LoginModal(ModalScreen):
@@ -358,7 +355,7 @@ class ManagedView(View):
         if s.get('security_note'):
             rows.append(('安全', f'[#7f8a9a]{esc(s["security_note"])}[/]'))
         self.query_one('#mg-status', Static).update(
-            '[b #a78bfa]托管 SnowLuma[/]\n' + '\n'.join(f'[#7f8a9a]{esc(k)}[/]  {v}' for k, v in rows))
+            '[b #a78bfa]托管 SnowLuma[/]\n' + kv(rows))
         if not s.get('available', True):
             if 'docker' in (s.get('supported_backends') or ()):
                 self.set_state('info', '本机文件夹托管在此平台不可用；可按 d 使用 Docker 托管，或按 e 导入已有连接。')
