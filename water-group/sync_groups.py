@@ -131,6 +131,7 @@ def inspect_and_sync():
                 "conversation_id": cid,
                 "session_id": sess["id"],
                 "persona": sess["persona_name"],
+                "persona_preset": sess.get("persona_preset", persona),
                 "trigger_mode": trigger_mode,
                 "active": True
             })

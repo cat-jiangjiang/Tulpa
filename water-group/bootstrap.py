@@ -171,30 +171,60 @@ def main():
         gid = target_sess.get("group_id")
         gname = target_sess.get("group_name")
         sid = target_sess.get("session_id")
-        persona = target_sess.get("persona")
+        persona_name = target_sess.get("persona")
+        persona_preset = target_sess.get("persona_preset") or "yu_bao"
         mode = target_sess.get("trigger_mode", "mention_only")
         mention_only_bool = (mode == "mention_only")
 
+        # 查找对应人设卡文件
+        persona_file = None
+        for cand in [
+            ROOT_DIR / "water-group" / "personas" / f"{persona_preset}.md",
+            ROOT_DIR / "water-group" / "personas" / f"{persona_name}.md",
+            ROOT_DIR / "water-group" / "personas" / "yu_bao.md",
+        ]:
+            if cand.exists():
+                persona_file = cand
+                break
+
+        persona_content = ""
+        if persona_file and persona_file.exists():
+            try:
+                persona_content = persona_file.read_text(encoding="utf-8")
+            except Exception:
+                pass
+
         print(f"✓ 目标群聊      : {gid} ({gname})")
         print(f"✓ 生效 Session : {sid}")
-        print(f"✓ 当前装载人设 : {persona}")
+        print(f"✓ 当前装载人设 : {persona_name} ({persona_preset})")
+        if persona_file:
+            print(f"✓ 人设卡路径   : {persona_file.relative_to(ROOT_DIR)}")
         print(f"✓ 触发唤醒模式 : {mode} ({'仅被@或点名唤醒，大群防烧 Token' if mention_only_bool else '自然插话'})")
         print("------------------------------------------------------------------------")
+        if persona_content:
+            print("【已加载人设卡核心内容 - 主脑必须严格以此设定进行思考与发言】：")
+            print(persona_content.strip())
+            print("------------------------------------------------------------------------")
         print("【Agent 极速启动行动指南 - 严禁进行任何多余探索，直接调用 MCP】：")
-        print(f"  MCP Server : \"tulpa\"")
-        print(f"  MCP Tool   : \"wait_chat_messages\"")
-        print(f"  Arguments  : {{")
-        print(f"    \"session_id\": \"{sid}\",")
-        print(f"    \"timeout_seconds\": 150,")
-        print(f"    \"mention_only\": {str(mention_only_bool).lower()}")
-        print(f"  }}")
+        print("  1. 必须牢记上述人设卡中的所有群友档案（如孩董喜欢🐻男/大胸猛男、时月的大网黄反差梗）及说话风格，严禁凭空瞎猜胡编事实！")
+        print("  2. 发起长轮询 wait_chat_messages 前向用户输出一句就绪提示")
+        print("  3. 调用 MCP 工具 wait_chat_messages 挂起监听：")
+        print(f"     MCP Server : \"tulpa\"")
+        print(f"     MCP Tool   : \"wait_chat_messages\"")
+        print(f"     Arguments  : {{")
+        print(f"       \"session_id\": \"{sid}\",")
+        print(f"       \"timeout_seconds\": 150,")
+        print(f"       \"mention_only\": {str(mention_only_bool).lower()}")
+        print(f"     }}")
         print("------------------------------------------------------------------------")
         
         output_payload = {
             "status": "ready",
             "target_group": gid,
             "session_id": sid,
-            "persona": persona,
+            "persona": persona_name,
+            "persona_preset": persona_preset,
+            "persona_file": str(persona_file.relative_to(ROOT_DIR)) if persona_file else None,
             "trigger_mode": mode,
             "next_call": {
                 "server": "tulpa",
