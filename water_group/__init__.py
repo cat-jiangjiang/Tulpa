@@ -10,21 +10,20 @@ Enables standard Python import conventions:
 Resolves the Python limitation where hyphenated directory names (water-group)
 cannot be imported directly as valid identifiers.
 
-This module is the ONLY place that touches sys.path for the water-group
-subsystem, and every water-group file is reachable as ``water_group.<name>``
-exactly once. Two module names for one file would give the process two copies
-of its state, which is how the memory engine singleton used to split.
+This module is the only water-group file that knows the hyphenated directory
+exists: it extends its own __path__ so every water-group file is reachable as
+``water_group.<name>`` exactly once. The directory itself is deliberately NOT
+added to sys.path — a file reachable under two names would load twice and
+split its state, which is how the memory engine singleton used to break.
+Modules that double as scripts (bootstrap, sync_groups) add the repo root to
+sys.path only when run as __main__.
 """
 import importlib
-import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 _WG_DIR = _ROOT / "water-group"
 _wg_str = str(_WG_DIR)
-
-if _wg_str not in sys.path:
-    sys.path.insert(0, _wg_str)
 
 if _wg_str not in __path__:
     __path__.append(_wg_str)
