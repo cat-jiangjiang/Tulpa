@@ -48,6 +48,17 @@ def test_rejected_structure():
         assert rej_corr["plan_id"] is None
         assert rej_corr["recovery"]["action"] == "correct_request"
 
+        # 4. Test submit with plan_id=None (simulating agent blindly forwarding rejected plan_id)
+        mock_grant = {"id": "grant-001", "scope": {"chat": True, "send": True}}
+        mock_chat.validate.return_value = (mock_grant, {"id": "session-001", "active": 1, "conversation_id": "111:group:222"})
+        import threading
+        cancel = threading.Event()
+        rej_submit = turns.submit(mock_grant, {"session_id": "session-001", "plan_id": None, "bubbles": []}, cancel)
+        assert rej_submit["state"] == "REJECTED"
+        assert rej_submit["plan_id"] is None
+        assert rej_submit["error_code"] == "plan_required"
+        assert "recovery_guide" in rej_submit
+
         print("✓ All rejected plan_id=None and recovery_guide structure tests passed!")
 
 
