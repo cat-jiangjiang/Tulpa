@@ -11,6 +11,8 @@ import re
 import stat
 import time
 
+from .mcp_chat_hints import habit_hints
+
 ROOT = Path(__file__).resolve().parent / 'prompts' / 'mcp_chat'
 BEHAVIOR = (ROOT / 'behavior.md').read_text('utf-8')
 EXAMPLES = json.loads((ROOT / 'examples.json').read_text('utf-8'))
@@ -224,11 +226,7 @@ def packet(row, recent, batch, *, event='messages', has_more=False, stickers=Non
         hints.append('最后一句可能没说完，先等一次短窗口听后续；这只是提示，不是确定的语义结论。')
     if state['consecutive_own_messages'] >= 2 or (len(recent) >= 6 and state['own_messages'] >= 4 and state['own_messages'] > state['observed_messages']/2):
         hints.append('最近自己的话较密，优先让别人接；被明确追问时仍可正常回应。')
-    if state.get('repeated_phrases'):
-        phrases_str = '、'.join(f'“{p}”' for p in state['repeated_phrases'])
-        hints.append(f'【防语癖固化】注意：最近发言多次出现重复尾缀/单字口癖（如 {phrases_str}）。本次发言请务必更换句式、语气与词尾，严禁机械重复既有口癖，保持表达丰富鲜活，防止自回归对话陷入复读固化。')
-    else:
-        hints.append('【表达去模板化】拒绝单一尾缀与口癖固化（如连续以“草”、“难绷”、“乐”单字或结尾）。每次发言根据当前语境灵活变换句式、语气与字数，可以反问、陈述细节、轻度调侃或使用表情包，杜绝复读机式自回归强化。')
+    hints.extend(habit_hints(state))
 
     if not scope.get('chat_images'):
         hints.append('本连接未授权看图，图片只有占位，不据此猜画面。')

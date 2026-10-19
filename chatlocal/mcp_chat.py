@@ -13,6 +13,7 @@ import time
 import uuid
 
 from .mcp_access import AccessDenied
+from .mcp_chat_hints import DOSSIER_REMINDER
 from .onebot_events import EventReceiver
 from .onebot_segments import at as at_segment, message_id, qq as qq_id, reply as reply_segment
 from . import mcp_chat_prompts as prompts
@@ -399,7 +400,7 @@ class MCPChat:
                 if l1_cards:
                     packet['member_dossiers'] = l1_cards
                     if 'reminders' in packet:
-                        packet['reminders'].append('已自动加载发言群友的小本本画像，可自然使用其外号、XP喜好与核心记忆针对性调侃（偶尔可用“我小本本上可记着...”），严禁客服腔。')
+                        packet['reminders'].append(DOSSIER_REMINDER)
         except Exception:
             pass
         if row['active']:
