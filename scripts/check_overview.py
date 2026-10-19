@@ -2,12 +2,12 @@
 import json
 import sys
 import tempfile
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.agent import run_agent
 from chatlocal.agent_tools import ChatTools,SCHEMAS
 from chatlocal.retrieval import make_plan
@@ -17,10 +17,9 @@ from chatlocal.render import answer_html
 
 def main():
     state={}
-    class Provider(BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
+    class Provider(FixtureHandler):
         def do_POST(self):
-            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            body=self.read_json()
             state['requests']+=1
             n=state['requests']
             if n==1:
@@ -40,12 +39,9 @@ def main():
                 claims=[] if state['directory_only'] else [dict(text='通知中有提交安排。',evidence_ids=[state['mid']])]
                 delta=dict(role='assistant',content=json.dumps(dict(claims=claims,insufficient=not claims)))
                 reason='stop'
-            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
-            body=json.dumps(dict(choices=[dict(index=0,delta=delta,finish_reason=reason)]))
-            self.wfile.write(('data: '+body+'\n\ndata: [DONE]\n\n').encode())
-    server=ThreadingHTTPServer(('127.0.0.1',0),Provider)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
-    try:
+            self.begin_sse()
+            self.send_sse(dict(choices=[dict(index=0,delta=delta,finish_reason=reason)]));self.end_sse()
+    with fixture_server(Provider) as server:
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='overview-check-') as folder:
             folder=Path(folder);store=Store(folder/'chats.sqlite3')
             rows=[]
@@ -100,8 +96,6 @@ def main():
                     assert [e['name'] for e in done['record']['events'] if e['type']=='tool_start']==['read_overview','get_context']
                     assert '没有读取客户端已读状态' in answer_html(result,done['record']['bundle'])
         print('PASS: scope/date/platform diversity, notification leads, stable paging, budgets, schema limits, real Harness overview/context/citations and metadata-only failure guard. No cloud API called.')
-    finally:
-        server.shutdown();server.server_close()
 
 
 if __name__=='__main__':main()

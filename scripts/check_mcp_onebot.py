@@ -1,18 +1,17 @@
 """Save EXE OneBot settings without an LLM, then use real HTTP MCP and OneBot fixtures."""
 import asyncio
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import socket
 import sys
 import tempfile
-import threading
 from unittest.mock import patch
 
 ROOT=Path(sys.argv[sys.argv.index('--package')+1]).resolve() if '--package' in sys.argv else Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from check_fixture_support import isolated_env
+from fixture_server import FixtureHandler,fixture_server
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from chatlocal.store import Store
@@ -25,13 +24,12 @@ from mcp.client.streamable_http import streamable_http_client
 import httpx
 
 
-class Fixture(BaseHTTPRequestHandler):
+class Fixture(FixtureHandler):
     actions=[]
-    def log_message(self,*args):pass
     def do_POST(self):
         if self.headers.get('Authorization')!='Bearer fixture-onebot':
             self.send_response(401);self.end_headers();return
-        body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        body=self.read_json()
         action=self.path.removeprefix('/');self.actions.append(action)
         data=None
         if action=='get_login_info':data=dict(user_id=111)
@@ -40,8 +38,7 @@ class Fixture(BaseHTTPRequestHandler):
             data=[dict(notice_id='n1',sender_id=333,publish_time=1790784000,message=dict(text='共享配置公告验收'))]
         elif action=='get_essence_msg_list':data=[]
         else:raise AssertionError('Unexpected OneBot action: '+action)
-        raw=json.dumps(dict(status='ok',retcode=0,data=data)).encode()
-        self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+        self.send_json(dict(status='ok',retcode=0,data=data))
 
 
 async def read_notice(url,token):
@@ -57,9 +54,8 @@ async def read_notice(url,token):
 
 
 def main():
-    server=ThreadingHTTPServer(('127.0.0.1',0),Fixture);threading.Thread(target=server.serve_forever,daemon=True).start()
     try:
-        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='mcp-onebot-') as tmp,patch.dict('os.environ',isolated_env(),clear=True):
+        with fixture_server(Fixture) as server,tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='mcp-onebot-') as tmp,patch.dict('os.environ',isolated_env(),clear=True):
             folder=Path(tmp);(folder/'.tmp').mkdir();store=Store(folder/'chats.sqlite3')
             imported=folder/'fixture.json';imported.write_text(json.dumps([dict(platform='qq',conversation_id='111:group:222',conversation='Fixture group',conversation_type='group',sender='Fixture',source_id='1',content='测试资料',timestamp='2026-10-01')]),'utf-8');store.import_file(imported)
             app=FastAPI();install_desktop_routes(app,folder);service=install_mcp_routes(app,store)
@@ -81,7 +77,7 @@ def main():
                 ui.put('/api/desktop/settings',headers=headers,json=dict(sender_token='incorrect'))
                 assert not asyncio.run(test_connection(url,token))['onebot']
                 assert ui.post('/api/desktop/onebot/test',headers=headers,json={}).json()['ok'] is False
-    finally:server.shutdown();server.server_close();invalidate_availability()
+    finally:invalidate_availability()
     assert '_get_group_notice' in Fixture.actions
     print('PASS shared EXE OneBot settings -> live MCP tool visibility -> HTTP notice read; no LLM key, hot token replacement, no sending. Isolated OneBot fixture.')
 

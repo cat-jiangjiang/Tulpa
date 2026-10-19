@@ -1,8 +1,9 @@
 """Real installed Harness, isolated chat data and local deterministic provider."""
-import json,sys,tempfile,threading
+import json,sys,tempfile
 from pathlib import Path
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.agent import run_agent
 from chatlocal.agent_profiles import profile_config
 from chatlocal.retrieval import Plan
@@ -12,10 +13,9 @@ from chatlocal.reply_agent import PROMPT
 
 def main():
     captured=[];case=dict(text='不了不了今天躺平😋',previous='',use_tools=True)
-    class Provider(BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
+    class Provider(FixtureHandler):
         def do_POST(self):
-            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));captured.append(body)
+            body=self.read_json();captured.append(body)
             assert not any('send' in t['function']['name'] or 'approv' in t['function']['name'] for t in body['tools'])
             system='\n'.join(m['content'] for m in body['messages'] if m['role']=='system')
             # The persona is user editable. Verify delivery, not old wording.
@@ -35,12 +35,11 @@ def main():
                     assert any('纯文本回复' in m.get('content','') for m in body['messages'][-2:])
                     assert not any('约定的最终 JSON' in m.get('content','') for m in body['messages'][-2:])
                 delta=dict(role='assistant',reasoning_content='fixture hidden reasoning; never part of the editable draft',content=case['text']);reason='stop'
-            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
+            self.begin_sse()
             for d,finish in ((delta,None),({},reason)):
-                self.wfile.write(('data: '+json.dumps(dict(id='fixture',object='chat.completion.chunk',choices=[dict(index=0,delta=d,finish_reason=finish)],usage=dict(prompt_tokens=100,completion_tokens=20,total_tokens=120)))+'\n\n').encode())
-            self.wfile.write(b'data: [DONE]\n\n')
-    server=ThreadingHTTPServer(('127.0.0.1',0),Provider);threading.Thread(target=server.serve_forever,daemon=True).start()
-    try:
+                self.send_sse(dict(id='fixture',object='chat.completion.chunk',choices=[dict(index=0,delta=d,finish_reason=finish)],usage=dict(prompt_tokens=100,completion_tokens=20,total_tokens=120)))
+            self.end_sse()
+    with fixture_server(Provider) as server:
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='reply-agent-') as tmp:
             p=Path(tmp);s=Store(p/'test.sqlite3');source=p/'input.json'
             source.write_text(json.dumps([dict(platform='qq',conversation_id='1:direct:2',conversation='好友',sender='朋友' if i==1 else '我',sender_id='2' if i==1 else '1',is_self=i==2,
@@ -67,7 +66,6 @@ def main():
             seed=prepare(tools,dict(message_id=1,tulpa_disabled=True))
             assert seed['message_id']==1
             assert any(m['content']==long_text for example in seed['style_examples'] for m in example['messages'])
-    finally:server.shutdown()
     print('PASS: real Harness plain-text initial/re-generation, user persona preserved, optional search/direct answer, scoped reads, output reminder after tools, budget instruction, reasoning separated, zero evidence-format repairs; no cloud calls or sends.')
 
 

@@ -1,7 +1,6 @@
 """Direct MCP write grants: isolated HTTP OneBot; never touches a real QQ account."""
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import socket
@@ -14,6 +13,7 @@ ROOT=Path(sys.argv[sys.argv.index('--package')+1]).resolve() if '--package' in s
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from check_fixture_support import isolated_env
+from fixture_server import FixtureHandler,fixture_server
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from chatlocal.store import Store
@@ -24,13 +24,12 @@ from mcp.client.streamable_http import streamable_http_client
 import httpx
 
 
-class Fixture(BaseHTTPRequestHandler):
+class Fixture(FixtureHandler):
     writes=[]
     uncertain=False
     actor='owner'
-    def log_message(self,*args):pass
     def do_POST(self):
-        body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        body=self.read_json()
         action=self.path.removeprefix('/')
         if action=='get_login_info':data=dict(user_id=111)
         elif action=='get_group_list':data=[dict(group_id=222),dict(group_id=555)]
@@ -43,8 +42,7 @@ class Fixture(BaseHTTPRequestHandler):
                 self.send_response(503);self.end_headers();return
             data=dict(message_id=700+len(self.writes)) if action.startswith('send_') else None
         else:raise AssertionError(action)
-        raw=json.dumps(dict(status='ok',retcode=0,data=data)).encode()
-        self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+        self.send_json(dict(status='ok',retcode=0,data=data))
 
 
 async def protocol(url,token):
@@ -61,9 +59,8 @@ async def protocol(url,token):
 
 
 def main():
-    server=ThreadingHTTPServer(('127.0.0.1',0),Fixture);threading.Thread(target=server.serve_forever,daemon=True).start()
     try:
-        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='mcp-actions-') as tmp,patch.dict('os.environ',isolated_env(),clear=True):
+        with fixture_server(Fixture) as server,tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='mcp-actions-') as tmp,patch.dict('os.environ',isolated_env(),clear=True):
             folder=Path(tmp);store=Store(folder/'chats.sqlite3')
             file=folder/'fixture.json';file.write_text(json.dumps([dict(platform='qq',conversation_id=cid,conversation='Isolated test',conversation_type='group',sender_id='333',sender='Fixture',source_id=cid,content='Fixture data',timestamp='2026-10-01') for cid in ['111:group:222','111:group:444']]),'utf-8');store.import_file(file)
             # Token is optional on the server; no illegal empty Bearer header.
@@ -147,7 +144,7 @@ def main():
                 assert 'error' in call(expired_live,'read_qq_group',conversation_id='111:group:222',view='info')
                 records=ui.get('/api/mcp/operations').json()['operations'];assert records and all(o['state']!='PENDING' for o in records)
                 assert ui.post('/api/mcp/operations/'+results[0]['id']+'/decision',headers=headers,json={'allow':True}).status_code==404
-    finally:server.shutdown();server.server_close();invalidate_availability()
+    finally:invalidate_availability()
     print('PASS direct UI grants, real MCP HTTP writes to isolated OneBot, permission/scope/role/revoke, concurrent idempotency, UNKNOWN no retry, literal text, receipts; no real QQ sends/kicks.')
 
 

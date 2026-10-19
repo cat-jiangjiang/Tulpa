@@ -2,12 +2,12 @@
 import json
 import sys
 import tempfile
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.agent import run_agent
 from chatlocal.llm import INSUFFICIENT
 from chatlocal.render import answer_html, evidence_html
@@ -18,8 +18,7 @@ from chatlocal.store import Store
 def main():
     state={}
     secret='do-not-persist-provider-body'
-    class Provider(BaseHTTPRequestHandler):
-        def log_message(self,*args): pass
+    class Provider(FixtureHandler):
         def do_POST(self):
             self.rfile.read(int(self.headers['Content-Length']))
             state['requests']+=1
@@ -28,10 +27,7 @@ def main():
                     function=dict(name='read_conversation',arguments=json.dumps(
                         dict(platform='qq',conversation_id='selected',order='newest',limit=10))))])
                 body='data: '+json.dumps(dict(choices=[dict(index=0,delta=delta,finish_reason='tool_calls')]))+'\n\ndata: [DONE]\n\n'
-                self.send_response(200)
-                self.send_header('Content-Type','text/event-stream')
-                self.end_headers()
-                self.wfile.write(body.encode())
+                self.begin_sse();self.wfile.write(body.encode())
             elif state['mode']=='http':
                 self.send_response(503);self.end_headers();self.wfile.write(secret.encode())
             else:
@@ -39,14 +35,12 @@ def main():
                 self.send_header('Content-Type','text/event-stream')
                 self.send_header('Content-Length','100000')
                 self.end_headers()
-                self.wfile.write(('data: '+json.dumps(dict(choices=[dict(index=0,
-                    delta=dict(reasoning_content='已接收的部分思考'))]))+'\n\n').encode())
+                self.send_sse(dict(choices=[dict(index=0,
+                    delta=dict(reasoning_content='已接收的部分思考'))]))
                 self.wfile.flush()
                 self.wfile.write(b': incomplete stream\n\n')
                 self.close_connection=True
-    server=ThreadingHTTPServer(('127.0.0.1',0),Provider)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
-    try:
+    with fixture_server(Provider) as server:
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='failure-check-') as folder:
             folder=Path(folder)
             rows=[dict(platform='qq',conversation=cid,conversation_id=cid,sender='甲',
@@ -75,8 +69,6 @@ def main():
                 assert '课程通知' in evidence_html(store,bundle)
             assert INSUFFICIENT in answer_html(dict(claims=[],insufficient=True),dict(messages=[]))
         print('PASS: real Harness + synthetic HTTP 503 / truncated stream; scope, retained evidence, safe diagnostics and failure/insufficiency distinction. No cloud API called.')
-    finally:
-        server.shutdown();server.server_close()
 
 
 if __name__=='__main__':main()

@@ -3,7 +3,6 @@ import json
 import sys
 import tempfile
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,6 +10,8 @@ from deepseek_harness import DeepSeekHarness
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.agent import run_agent, Bridge
 from chatlocal.agent_tools import ChatTools, SCHEMAS
 from chatlocal.agent_sessions import Sessions
@@ -31,10 +32,9 @@ def main():
     def drive(*args,**kwargs):
         with patch('deepseek_harness.DeepSeekHarness',ObservedHarness),patch('chatlocal.qq_tools.available_client',return_value=None):
             yield from run_agent(*args,**kwargs)
-    class Provider(BaseHTTPRequestHandler):
-        def log_message(self,*args): pass
+    class Provider(FixtureHandler):
         def do_POST(self):
-            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            body=self.read_json()
             captured.append(body)
             index=len(captured)
             if 'GREETING_UNVERIFIED' in json.dumps(body['messages']):
@@ -92,19 +92,16 @@ def main():
                     {'text':'星桥项目在两个平台有讨论。','evidence_ids':[1,3]},
                     {'text':'这项伪造引用应被丢弃。','evidence_ids':[99999]}],'insufficient':False},ensure_ascii=False))
                 reason='stop'
-            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
+            self.begin_sse()
             if index in (2,3,4):
                 for part in (reasoning_fixture[:17],reasoning_fixture[17:]):
-                    chunk=dict(choices=[dict(index=0,delta=dict(reasoning_content=part))])
-                    self.wfile.write(('data: '+json.dumps(chunk)+'\n\n').encode())
+                    self.send_sse(dict(choices=[dict(index=0,delta=dict(reasoning_content=part))]))
                     self.wfile.flush()
             for item in [dict(id='fixture',object='chat.completion.chunk',model='deepseek-flash',choices=[dict(index=0,delta=delta,finish_reason=None)]),
                          dict(id='fixture',object='chat.completion.chunk',model='deepseek-flash',choices=[dict(index=0,delta={},finish_reason=reason)],usage=dict(prompt_tokens=100,completion_tokens=20,total_tokens=120))]:
-                self.wfile.write(('data: '+json.dumps(item)+'\n\n').encode())
-            self.wfile.write(b'data: [DONE]\n\n')
-    server=ThreadingHTTPServer(('127.0.0.1',0),Provider)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
-    try:
+                self.send_sse(item)
+            self.end_sse()
+    with fixture_server(Provider) as server:
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='agent-check-') as folder:
             folder=Path(folder)
             path=folder/'synthetic.json'
@@ -206,8 +203,6 @@ def main():
                 assert cancel_events[-1]['status']=='cancelled'
             assert children and all(p.poll() is not None for p in children),'Harness child leaked after cancellation'
             print('PASS: real Harness loop with local fake provider; cross-platform tools, hard scope, budgets, real progress, citation rejection, safe wire fields, local persistence/reload and cancellation. No cloud API called.')
-    finally:
-        server.shutdown();server.server_close()
 
 
 if __name__=='__main__':main()

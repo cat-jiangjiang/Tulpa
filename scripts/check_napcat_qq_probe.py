@@ -1,11 +1,14 @@
 """NapCat probe contracts on invented messages and loopback fake HTTP only."""
+from contextlib import ExitStack
 from copy import deepcopy
 from dataclasses import replace
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-import threading
+import sys
 import unittest
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler, fixture_server
 from napcat_qq_fixture import HistoryFixture, ScriptedFixture, messages
 from napcat_qq_probe import LocalHTTP, MAX_RESPONSE, ProbeError, Spec, observe, probe
 
@@ -160,10 +163,7 @@ class HistoryTests(unittest.TestCase):
 class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
-
+        class Handler(FixtureHandler):
             def do_POST(self):
                 cls.requests.append(self.path)
                 body = self.rfile.read(int(self.headers['Content-Length']))
@@ -194,16 +194,13 @@ class HTTPTests(unittest.TestCase):
                 except (ConnectionError, OSError):
                     pass  # Size guard may close the synthetic connection early.
 
-        cls.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
-        cls.thread.start()
+        cls.stack = ExitStack()
+        cls.server = cls.stack.enter_context(fixture_server(Handler))
         cls.url = f'http://127.0.0.1:{cls.server.server_port}'
 
     @classmethod
     def tearDownClass(cls):
-        cls.server.shutdown()
-        cls.server.server_close()
-        cls.thread.join(2)
+        cls.stack.close()
 
     def setUp(self):
         type(self).requests, type(self).behavior, type(self).backend = [], 'ok', HistoryFixture()

@@ -3,8 +3,6 @@ import json
 import html
 import sys
 import tempfile
-import threading
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +10,8 @@ import httpx
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.agent_profiles import profile_catalog,profile_config
 from chatlocal.agent_sessions import Sessions
 from chatlocal.config import agent_options
@@ -24,10 +24,9 @@ def main():
     assert catalog['default']=='deep' and len(catalog['profiles'])==4
     captured=[]
     thought='模拟思考第一行\n\n<script>不执行</script>\n最后一行'
-    class Provider(BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
+    class Provider(FixtureHandler):
         def do_POST(self):
-            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            body=self.read_json()
             captured.append(body)
             if len(captured)==1:
                 delta=dict(role='assistant',tool_calls=[dict(index=0,id='read',type='function',function=dict(
@@ -37,15 +36,13 @@ def main():
                 delta=dict(role='assistant',content=json.dumps(dict(claims=[dict(text='选中群里有课程通知。',evidence_ids=[1])],insufficient=False),ensure_ascii=False))
                 if body.get('thinking',{}).get('type')=='enabled':delta['reasoning_content']=thought
                 finish='stop'
-            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
-            self.wfile.write(('data: '+json.dumps(dict(choices=[dict(index=0,delta=delta,finish_reason=finish)]))+'\n\ndata: [DONE]\n\n').encode())
-    server=ThreadingHTTPServer(('127.0.0.1',0),Provider)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
-    original_stream=httpx.Client.stream
-    def local_only(client,method,url,*args,**kwargs):
-        assert url=='https://api.deepseek.com/chat/completions',url
-        return original_stream(client,method,f'http://127.0.0.1:{server.server_port}/chat/completions',*args,**kwargs)
-    try:
+            self.begin_sse()
+            self.send_sse(dict(choices=[dict(index=0,delta=delta,finish_reason=finish)]));self.end_sse()
+    with fixture_server(Provider) as server:
+        original_stream=httpx.Client.stream
+        def local_only(client,method,url,*args,**kwargs):
+            assert url=='https://api.deepseek.com/chat/completions',url
+            return original_stream(client,method,f'http://127.0.0.1:{server.server_port}/chat/completions',*args,**kwargs)
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='profiles-check-') as tmp:
             tmp=Path(tmp);sessions=Sessions(tmp/'sessions.sqlite3');store=Store(tmp/'chats.sqlite3')
             source=tmp/'input.json';source.write_text(json.dumps([dict(platform='qq',conversation_id=cid,
@@ -97,7 +94,6 @@ def main():
                 assert agent_options(profile_config(cfg,None))['max_requests']==9
                 app.close()
         print('PASS: all four presets through real UI callback + Harness, wire effort/tokens, persisted budgets/labels, scope isolation, invalid preset rejection, legacy API and .env config preserved. No cloud API.')
-    finally:server.shutdown();server.server_close()
 
 
 if __name__=='__main__':main()

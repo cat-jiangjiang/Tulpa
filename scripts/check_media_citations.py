@@ -2,12 +2,12 @@
 import json
 import sys
 import tempfile
-import threading
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.agent import run_agent
 from chatlocal.llm import validate_answer,INSUFFICIENT
 from chatlocal.render import answer_html
@@ -20,10 +20,9 @@ def main():
     bad=dict(claims=[dict(text='文字中双方约定由本人画封面。',evidence_ids=[1,2,3])],insufficient=False)
     fixed=dict(claims=[dict(text='文字中双方约定由本人画封面，附件是否成品尚未核实。',
                            evidence_ids=[1,3],attachment_ids=[2])],insufficient=False)
-    class Provider(BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
+    class Provider(FixtureHandler):
         def do_POST(self):
-            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            body=self.read_json()
             state['requests']+=1
             if state['requests']==1:
                 delta=dict(role='assistant',tool_calls=[dict(index=0,id='context',type='function',
@@ -35,12 +34,9 @@ def main():
                     assert any(m['role']=='tool' for m in body['messages']), 'Repair lost prior evidence'
                 value=fixed if state['requests']==3 and state['repair_ok'] else bad
                 delta=dict(role='assistant',content=json.dumps(value,ensure_ascii=False));reason='stop'
-            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
-            item=dict(choices=[dict(index=0,delta=delta,finish_reason=reason)])
-            self.wfile.write(('data: '+json.dumps(item)+'\n\ndata: [DONE]\n\n').encode())
-    server=ThreadingHTTPServer(('127.0.0.1',0),Provider)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
-    try:
+            self.begin_sse()
+            self.send_sse(dict(choices=[dict(index=0,delta=delta,finish_reason=reason)]));self.end_sse()
+    with fixture_server(Provider) as server:
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='media-citations-') as folder:
             folder=Path(folder);store=Store(folder/'chats.sqlite3')
             rows=[dict(platform='qq',conversation_id='q',conversation='合成私聊',conversation_type='direct',
@@ -89,8 +85,6 @@ def main():
             old=dict(claims=[],insufficient=True,rejected=2)
             assert INSUFFICIENT not in answer_html(old,dict(messages=evidence))
         print('PASS: attachment/text distinction, image-content guard, complete citations, same-scope attachments, real Harness one repair, unchanged request cap and honest failure rendering. No cloud API called.')
-    finally:
-        server.shutdown();server.server_close()
 
 
 if __name__=='__main__':main()

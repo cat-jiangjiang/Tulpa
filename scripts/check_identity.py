@@ -2,12 +2,12 @@
 import json
 import sys
 import tempfile
-import threading
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from fixture_server import FixtureHandler,fixture_server
 from chatlocal.agent import run_agent,mentions_shortcut
 from chatlocal.agent_tools import ChatTools
 from chatlocal.identity import group_identities
@@ -18,10 +18,9 @@ from chatlocal.store import Store
 
 def main():
     state={}
-    class Provider(BaseHTTPRequestHandler):
-        def log_message(self,*args):pass
+    class Provider(FixtureHandler):
         def do_POST(self):
-            body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));state['requests']+=1
+            body=self.read_json();state['requests']+=1
             if state['requests']==1:
                 assert body['tool_choice']['function']['name']=='find_mentions'
                 delta=dict(role='assistant',tool_calls=[dict(index=0,id='mentions',type='function',
@@ -34,11 +33,8 @@ def main():
                 assert 'PRIVATE OLD BODY' not in json.dumps(body)
                 delta=dict(role='assistant',content=json.dumps(dict(claims=[dict(
                     text='找到两条与本人同群昵称一致的消息，属于疑似@本人，尚不能确认原生目标。',evidence_ids=ids)],insufficient=False),ensure_ascii=False));reason='stop'
-            self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
-            self.wfile.write(('data: '+json.dumps(dict(choices=[dict(index=0,delta=delta,finish_reason=reason)]))+'\n\ndata: [DONE]\n\n').encode())
-    server=ThreadingHTTPServer(('127.0.0.1',0),Provider)
-    threading.Thread(target=server.serve_forever,daemon=True).start()
-    try:
+            self.begin_sse();self.send_sse(dict(choices=[dict(index=0,delta=delta,finish_reason=reason)]));self.end_sse()
+    with fixture_server(Provider) as server:
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='identity-') as tmp:
             tmp=Path(tmp);store=Store(tmp/'chats.sqlite3')
             def row(group,sender,content,self=False,platform='qq',old=False):
@@ -90,7 +86,6 @@ def main():
             assert done['record']['result']['claims'] and not done['record']['result']['rejected']
             assert '不能据此断言无人' in answer_html(done['record']['result'],done['record']['bundle'])
         print('PASS: stable own IDs, per-group aliases, collisions, unknown identity, date/platform/group boundaries, candidate-only semantics, paging/budgets and real Harness first-call routing. No cloud API.')
-    finally:server.shutdown();server.server_close()
 
 
 if __name__=='__main__':main()
