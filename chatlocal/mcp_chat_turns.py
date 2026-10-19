@@ -115,7 +115,7 @@ class ChatTurns:
 
     def rejected(self,exc,sid=None):
         timing.note(session_id=sid, error_code=exc.code)
-        result=dict(state='REJECTED',error_code=exc.code,note=str(exc),**exc.details)
+        result=dict(state='REJECTED',plan_id=None,error_code=exc.code,note=str(exc),**exc.details)
         refresh={'stale','needs_refresh','batch_expired','plan_expired','target_expired','plan_missing','plan_not_ready'}
         if 'correction_call' in result:
             result['recovery']=dict(action='correct_request',automatic_write_retry=False,next_call=result.pop('correction_call'))
@@ -132,6 +132,7 @@ class ChatTurns:
             result['recovery']=dict(action='select_expressions',automatic_write_retry=False,next_call=exc.details['next_call'])
         else:
             result['recovery']=dict(action='fix_request_or_stop',automatic_write_retry=False)
+        result['recovery_guide']=f"当前规划已被状态机拒绝 ({exc.code})：{str(exc)}。若附带 updated_chat 请直接提取 input_batch 重新调用 plan_chat_reply，或沿 recovery.next_call 执行；严禁在 state!=READY 时调用 send_chat_reply。"
         return result
 
     def recovery_read(self,sid):

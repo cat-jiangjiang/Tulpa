@@ -147,6 +147,14 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
      "intent": "<一句话简短意图，如：傲娇回应群友的点名>"
    }
    ```
+   - **【规划状态检查与 Stale / KeyError 防护】**：
+     调用 `plan_chat_reply` 后，**必须先检查返回结果的 `state`，绝不可直接盲目读取 `plan_id`**：
+     - 若 `state == "READY"`：安全获取返回的 `plan_id = plan_res["plan_id"]`，进入下一阶段 Replyer 发送回复。
+     - 若 `state == "REJECTED"`（此时 `plan_id` 为 `None`，不可调用发送）：
+       - 若 `error_code == "stale"` 或 `"needs_refresh"`：说明在规划期间群友又有新插话或纠错补充。
+         - 若返回中附带 `updated_chat`：**直接提取 `updated_chat["input_batch"]`（及其 `id`）原地重新调用 `plan_chat_reply`**，无需重新调用 wait！
+         - 若未附带 `updated_chat`：沿 `recovery.next_call` 调用 `get_chat_session` 刷新上下文后再规划。
+       - 若 `error_code == "needs_wait"`：说明群内消息仍在快速收集窗口中，沿 `recovery.next_call` 稍作等待再行决策。
 2. **Replyer (发送回复与 QQ 原生引用)**：
    根据人设构思 1~2 条短碎片文字气泡（每条 1~10 字，拒绝 AI 味）。
    - **【核心铁律：精准回复与 QQ 原生引用】**：
