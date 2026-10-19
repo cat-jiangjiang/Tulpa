@@ -14,6 +14,7 @@ import uuid
 
 from .mcp_access import AccessDenied
 from .mcp_chat_hints import DOSSIER_REMINDER
+from .mcp_chat_limits import WAIT_TIMEOUT_SECONDS
 from .mcp_schemas import SESSION_ID_DESCRIPTION, event_id, idempotency_key, session_id
 from .onebot_events import EventReceiver
 from .onebot_segments import at as at_segment, message_id, qq as qq_id, reply as reply_segment
@@ -89,7 +90,7 @@ def schemas(tool):
              dict(**sid, acknowledge_through_id=dict(type='integer', minimum=0), note=dict(type='string', maxLength=1500),
                   known_prompt_version=dict(type='string', maxLength=120),
                   response_format=dict(type='string',enum=['compact','full'],default='compact',description='默认只返回动态参与信息；完整人格和规则由 start/get 提供。排查时可选 full。'),
-                  timeout_seconds=dict(type='number', minimum=1, maximum=180, default=150),
+                  timeout_seconds=dict(type='number', minimum=1, maximum=180, default=WAIT_TIMEOUT_SECONDS),
                   minimum_wait_seconds=dict(type='number',minimum=0,maximum=30,default=0,description='通常沿用 recovery.next_call；重试前在程序内等待，避免旧批次立即返回造成忙等。可被停止或取消打断，不超过 timeout_seconds。'),
                   quiet_seconds=dict(type='number', minimum=0, maximum=5, default=2),
                   limit=dict(type='integer', minimum=1, maximum=50, default=30),
@@ -352,7 +353,7 @@ class MCPChat:
     def continuation(self, sid, *, through=None):
         """Executable read-only continuation; never invent or advance a cursor."""
         row=self.row(sid)
-        args=dict(session_id=sid,known_prompt_version=prompts.version(row),timeout_seconds=150)
+        args=dict(session_id=sid,known_prompt_version=prompts.version(row),timeout_seconds=WAIT_TIMEOUT_SECONDS)
         if through is not None and not self.turns.waiting(sid):
             args['acknowledge_through_id']=max(row['cursor'],min(through,row['offered']))
         return dict(tool='wait_chat_messages',arguments=args)
@@ -711,7 +712,7 @@ class MCPChat:
                                    (ack,args.get('note',row['note']),time.time(),sid))
                 row=self.row(sid,gid)
             elif 'note' in args:raise ValueError('保存话题说明时请同时确认已处理的消息进度。')
-            end=time.monotonic()+args.get('timeout_seconds',150)
+            end=time.monotonic()+args.get('timeout_seconds',WAIT_TIMEOUT_SECONDS)
             planned_wait=self.turns.remaining_wait(sid)
             if planned_wait:end=min(end,time.monotonic()+planned_wait)
             earliest=min(end,time.monotonic()+args.get('minimum_wait_seconds',0))

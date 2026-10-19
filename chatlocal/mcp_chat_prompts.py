@@ -12,6 +12,7 @@ import stat
 import time
 
 from .mcp_chat_hints import habit_hints
+from .mcp_chat_limits import WAIT_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parent / 'prompts' / 'mcp_chat'
 BEHAVIOR = (ROOT / 'behavior.md').read_text('utf-8')
@@ -274,6 +275,6 @@ def packet(row, recent, batch, *, event='messages', has_more=False, stickers=Non
     elif row.get('id'):
         result['image_reads'] = [dict(tool='read_chat_image',arguments=dict(session_id=row['id'],event_id=m['event_id'],index=m['index']))
                                  for m in state['image_events']] if scope.get('chat_images') else []
-        result['continue_with'] = dict(tool='wait_chat_messages', arguments=dict(session_id=row['id'],known_prompt_version=version(row),timeout_seconds=150),
+        result['continue_with'] = dict(tool='wait_chat_messages', arguments=dict(session_id=row['id'],known_prompt_version=version(row),timeout_seconds=WAIT_TIMEOUT_SECONDS),
             when='处理完这一批就实际调用；不发言也调用。已处理完时附 acknowledge_through_id=本批 read_through_id；用户停止则改用 stop_chat_session。')
     return result
