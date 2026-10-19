@@ -1,6 +1,5 @@
 import hashlib
 import json
-import sqlite3
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime
@@ -11,6 +10,7 @@ import jieba
 from .config import DB, DATA, ROOT, local_path, resolve_path
 from .normalize import TZ, decode_export, display_time, normalize, stable_key
 from .media import hydrate,import_media,is_sticker,media_at,STICKER_PLACEHOLDER
+from .sqlite_util import connect as sqlite_connect, initialize as sqlite_initialize
 
 jieba.dt.tmp_dir = str(ROOT / '.cache')
 jieba.setLogLevel(30)
@@ -26,8 +26,12 @@ class Store:
         self.path = resolve_path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
-            db.executescript('''
-              PRAGMA journal_mode=WAL;
+            self._migrate(db)
+
+    def _migrate(self, db):
+        """Create and upgrade the schema. Order matters; never reorder steps."""
+        sqlite_initialize(db, wal=True)
+        db.executescript('''
               CREATE TABLE IF NOT EXISTS sources(
                 hash TEXT PRIMARY KEY, filename TEXT NOT NULL, archive TEXT NOT NULL,
                 format TEXT NOT NULL, imported_at TEXT NOT NULL, total INTEGER, skipped INTEGER);
@@ -46,53 +50,47 @@ class Store:
                 pointer TEXT NOT NULL, PRIMARY KEY(message_id,source_hash,pointer));
               CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(terms, tokenize='unicode61');
             ''')
-            if 'conversation_type' not in {r[1] for r in db.execute('PRAGMA table_info(messages)')}:
-                db.execute("ALTER TABLE messages ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'unknown'")
-            columns={r[1] for r in db.execute('PRAGMA table_info(messages)')}
-            if 'media_json' not in columns:db.execute("ALTER TABLE messages ADD COLUMN media_json TEXT NOT NULL DEFAULT '[]'")
-            if 'reply_to' not in columns:db.execute('ALTER TABLE messages ADD COLUMN reply_to TEXT')
-            from .image_identity import initialize as initialize_image_ids
-            initialize_image_ids(db)
-            from .reply_history import initialize as initialize_reply_history
-            initialize_reply_history(db)
-            if 'original_content' not in columns:db.execute('ALTER TABLE messages ADD COLUMN original_content TEXT')
-            from .sync_state import initialize
-            initialize(db)
-            from .import_scope import initialize as initialize_scope
-            initialize_scope(db)
-            from .live_state import initialize as initialize_live
-            initialize_live(db)
-            from .artifacts import initialize as initialize_artifacts
-            initialize_artifacts(db)
-            from .voice import initialize as initialize_voice
-            initialize_voice(db)
-            from .group_knowledge import initialize as initialize_knowledge
-            initialize_knowledge(db)
-            from .collections import initialize as initialize_collections
-            initialize_collections(db)
-            from .changes import initialize as initialize_changes
-            initialize_changes(db)
-            from .workspaces import initialize as initialize_workspaces
-            initialize_workspaces(db)
-            from .replies import initialize as initialize_replies
-            initialize_replies(db)
-            from .group_admin import initialize as initialize_group_admin
-            initialize_group_admin(db)
-            from .import_pipeline import initialize as initialize_imports
-            initialize_imports(db)
-            from .tulpa import initialize as initialize_tulpa
-            initialize_tulpa(db)
+        if 'conversation_type' not in {r[1] for r in db.execute('PRAGMA table_info(messages)')}:
+            db.execute("ALTER TABLE messages ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'unknown'")
+        columns={r[1] for r in db.execute('PRAGMA table_info(messages)')}
+        if 'media_json' not in columns:db.execute("ALTER TABLE messages ADD COLUMN media_json TEXT NOT NULL DEFAULT '[]'")
+        if 'reply_to' not in columns:db.execute('ALTER TABLE messages ADD COLUMN reply_to TEXT')
+        from .image_identity import initialize as initialize_image_ids
+        initialize_image_ids(db)
+        from .reply_history import initialize as initialize_reply_history
+        initialize_reply_history(db)
+        if 'original_content' not in columns:db.execute('ALTER TABLE messages ADD COLUMN original_content TEXT')
+        from .sync_state import initialize
+        initialize(db)
+        from .import_scope import initialize as initialize_scope
+        initialize_scope(db)
+        from .live_state import initialize as initialize_live
+        initialize_live(db)
+        from .artifacts import initialize as initialize_artifacts
+        initialize_artifacts(db)
+        from .voice import initialize as initialize_voice
+        initialize_voice(db)
+        from .group_knowledge import initialize as initialize_knowledge
+        initialize_knowledge(db)
+        from .collections import initialize as initialize_collections
+        initialize_collections(db)
+        from .changes import initialize as initialize_changes
+        initialize_changes(db)
+        from .workspaces import initialize as initialize_workspaces
+        initialize_workspaces(db)
+        from .replies import initialize as initialize_replies
+        initialize_replies(db)
+        from .group_admin import initialize as initialize_group_admin
+        initialize_group_admin(db)
+        from .import_pipeline import initialize as initialize_imports
+        initialize_imports(db)
+        from .tulpa import initialize as initialize_tulpa
+        initialize_tulpa(db)
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute('PRAGMA foreign_keys=ON')
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+        with sqlite_connect(self.path, timeout=30, foreign_keys=True) as db:
+            yield db
 
     def import_file(self, path, platform='', conversation='', self_ids='',load_stickers=True, *, sync=None, live=None, discovery=False, batch=None, complete_job=None):
         if not isinstance(load_stickers,bool):raise ValueError('加载表情包必须为开或关')

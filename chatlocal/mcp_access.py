@@ -2,7 +2,6 @@
 import hashlib
 import json
 import secrets
-import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
@@ -10,6 +9,7 @@ from contextlib import contextmanager
 from .client_accounts import bound_account
 from .retrieval import Plan, date_bound
 from .mcp_qq_permissions import QQ_FLAGS, MEDIA_FLAGS as ATTACHMENT_FLAGS, live_grant
+from .sqlite_util import connect as sqlite_connect
 
 CHAT_MEDIA_FLAGS = ('chat_images', 'chat_sticker_send', 'chat_sticker_collect')
 CHAT_EXTRA_FLAGS = ('chat_reactions',)
@@ -56,13 +56,8 @@ class MCPAccess:
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=10)
-        db.row_factory = sqlite3.Row
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+        with sqlite_connect(self.path, timeout=10) as db:
+            yield db
 
     def settings(self):
         with self.connect() as db:

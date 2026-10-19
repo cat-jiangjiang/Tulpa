@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import sqlite3
 import time
 import requests
 
@@ -10,6 +9,7 @@ sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, "water-group"))
 from sync_personas import sync_personas
 from chatlocal import mcp_chat_prompts as prompts
+from chatlocal.sqlite_util import connect as sqlite_connect
 
 CONFIG_PATH = os.path.join(ROOT_DIR, "water-group", "config.json")
 DB_PATH = os.path.join(ROOT_DIR, "data", "mcp-access.sqlite3")
@@ -58,13 +58,9 @@ def get_active_sessions(db_path):
     if not os.path.exists(db_path):
         return {}
     try:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        db = conn.cursor()
-        rows = db.execute("SELECT id, conversation_id, name, active, persona_preset, persona_name, persona, participation FROM chat_sessions WHERE active=1").fetchall()
-        sessions = {r["conversation_id"]: dict(r) for r in rows}
-        conn.close()
-        return sessions
+        with sqlite_connect(db_path, timeout=5) as conn:
+            rows = conn.execute("SELECT id, conversation_id, name, active, persona_preset, persona_name, persona, participation FROM chat_sessions WHERE active=1").fetchall()
+            return {r["conversation_id"]: dict(r) for r in rows}
     except Exception as e:
         print(f"[Info] 会话数据库尚未初始化或无活动会话: {e}")
         return {}
@@ -138,12 +134,10 @@ def inspect_and_sync():
                 update_fields["participation"] = trigger_mode
 
             if needs_update:
-                conn = sqlite3.connect(DB_PATH)
                 set_clause = ", ".join(f"{k}=?" for k in update_fields.keys()) + ", updated=?"
                 vals = list(update_fields.values()) + [time.time(), sess["id"]]
-                conn.execute(f"UPDATE chat_sessions SET {set_clause} WHERE id=?", vals)
-                conn.commit()
-                conn.close()
+                with sqlite_connect(DB_PATH, timeout=5) as conn:
+                    conn.execute(f"UPDATE chat_sessions SET {set_clause} WHERE id=?", vals)
                 sess.update(update_fields)
                 print(f"🔄 [热重载] 群 {gid} ({gname}) 已更新 -> 人格: {sess['persona_name']} ({persona}) | 模式: {trigger_mode}")
 
