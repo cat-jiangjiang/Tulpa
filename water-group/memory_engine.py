@@ -284,6 +284,171 @@ class MemoryEngine:
 
         return self.find_profile(user_id)
 
+    def sync_member_mappings(self, mappings, group_id=None):
+        """Binds explicit member mappings (QQ -> identity/aliases/traits/seeds).
+        mappings: dict of { "qq_or_id": { "name": ..., "aliases": [...], "role": ..., "tone_style": ..., "interests": [...], "desc": ..., "seed_key": ... } }
+        """
+        if not mappings or not isinstance(mappings, dict):
+            return 0
+
+        synced = 0
+        now = time.time()
+        with self.lock, self._connect() as conn:
+            for target_id, info in mappings.items():
+                if not isinstance(info, dict):
+                    continue
+                target_id = str(target_id).strip()
+                if not target_id:
+                    continue
+                name = str(info.get("name") or target_id).strip()
+                aliases = [str(a).strip() for a in (info.get("aliases") or []) if str(a).strip()]
+                role = str(info.get("role") or "").strip()
+                tone_style = str(info.get("tone_style") or "").strip()
+                interests = [str(i).strip() for i in (info.get("interests") or []) if str(i).strip()]
+                desc = str(info.get("desc") or "").strip()
+                seed_key = str(info.get("seed_key") or "").strip()
+                card = str(info.get("card") or "").strip()
+
+                # Check if seed_key or candidate seed row exists
+                seed_row = None
+                if seed_key:
+                    seed_row = conn.execute("SELECT * FROM member_profiles WHERE user_id=?", (seed_key,)).fetchone()
+                if not seed_row:
+                    seed_row = conn.execute(
+                        "SELECT * FROM member_profiles WHERE LOWER(primary_name)=LOWER(?) AND user_id!=? AND user_id LIKE 'seed:%'",
+                        (name, target_id),
+                    ).fetchone()
+
+                seed_aliases = json.loads(seed_row["aliases"] or "[]") if seed_row else []
+                seed_interests = json.loads(seed_row["interests"] or "[]") if seed_row else []
+                seed_traits = json.loads(seed_row["traits"] or "{}") if seed_row else {}
+                seed_memories = json.loads(seed_row["key_memories"] or "[]") if seed_row else []
+                seed_tone = seed_row["tone_style"] if seed_row else ""
+                seed_id = seed_row["user_id"] if seed_row else None
+
+                existing_target = conn.execute("SELECT * FROM member_profiles WHERE user_id=?", (target_id,)).fetchone()
+                cur_aliases = json.loads(existing_target["aliases"] or "[]") if existing_target else []
+                cur_interests = json.loads(existing_target["interests"] or "[]") if existing_target else []
+                cur_traits = json.loads(existing_target["traits"] or "{}") if existing_target else {}
+                cur_memories = json.loads(existing_target["key_memories"] or "[]") if existing_target else []
+
+                merged_aliases = list(dict.fromkeys([name, target_id] + ([card] if card else []) + aliases + seed_aliases + cur_aliases))
+                merged_interests = list(dict.fromkeys(interests + seed_interests + cur_interests))
+                merged_traits = {**seed_traits, **cur_traits}
+                if role:
+                    merged_traits["role"] = role
+                if card:
+                    merged_traits["card"] = card
+                merged_tone = tone_style or seed_tone or (existing_target["tone_style"] if existing_target and existing_target["tone_style"] else "普通群友")
+
+                desc_list = [desc] if desc and desc not in seed_memories and desc not in cur_memories else []
+                merged_memories = list(dict.fromkeys(desc_list + seed_memories + cur_memories))[:5]
+
+                if existing_target:
+                    conn.execute(
+                        """
+                        UPDATE member_profiles
+                        SET primary_name=?, aliases=?, tone_style=?, interests=?, traits=?, key_memories=?, updated_at=?
+                        WHERE user_id=?
+                        """,
+                        (
+                            name,
+                            json.dumps(merged_aliases, ensure_ascii=False),
+                            merged_tone,
+                            json.dumps(merged_interests, ensure_ascii=False),
+                            json.dumps(merged_traits, ensure_ascii=False),
+                            json.dumps(merged_memories, ensure_ascii=False),
+                            now,
+                            target_id,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO member_profiles (user_id, primary_name, aliases, tone_style, interests, traits, key_memories, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            target_id,
+                            name,
+                            json.dumps(merged_aliases, ensure_ascii=False),
+                            merged_tone,
+                            json.dumps(merged_interests, ensure_ascii=False),
+                            json.dumps(merged_traits, ensure_ascii=False),
+                            json.dumps(merged_memories, ensure_ascii=False),
+                            now,
+                            now,
+                        ),
+                    )
+
+                # Migrate events from seed to target QQ and remove retired seed row
+                if seed_id and seed_id != target_id:
+                    conn.execute("UPDATE member_events SET user_id=? WHERE user_id=?", (target_id, seed_id))
+                    conn.execute("DELETE FROM member_profiles WHERE user_id=?", (seed_id,))
+
+                synced += 1
+
+        return synced
+
+    def sync_onebot_members(self, members, group_id=None):
+        """Syncs member list from OneBot, recording/updating cards and nicknames into profiles."""
+        if not members:
+            return 0
+        updated = 0
+        now = time.time()
+        with self.lock, self._connect() as conn:
+            for m in members:
+                if not isinstance(m, dict):
+                    continue
+                uid = str(m.get("user_id") or "").strip()
+                if not uid or not uid.isdigit():
+                    continue
+                nickname = str(m.get("nickname") or "").strip()
+                card = str(m.get("card") or "").strip()
+                role = str(m.get("role") or "").strip()
+
+                prof = conn.execute("SELECT * FROM member_profiles WHERE user_id=?", (uid,)).fetchone()
+                if prof:
+                    aliases = json.loads(prof["aliases"] or "[]")
+                    traits = json.loads(prof["traits"] or "{}")
+                    changed = False
+                    for item in (card, nickname):
+                        if item and item not in aliases:
+                            aliases.append(item)
+                            changed = True
+                    if card and traits.get("card") != card:
+                        traits["card"] = card
+                        changed = True
+                    if nickname and traits.get("nickname") != nickname:
+                        traits["nickname"] = nickname
+                        changed = True
+                    if role in ("owner", "admin") and traits.get("group_role") != role:
+                        traits["group_role"] = role
+                        changed = True
+                    if changed:
+                        conn.execute(
+                            "UPDATE member_profiles SET aliases=?, traits=?, updated_at=? WHERE user_id=?",
+                            (json.dumps(aliases, ensure_ascii=False), json.dumps(traits, ensure_ascii=False), now, uid),
+                        )
+                        updated += 1
+                else:
+                    # Create lightweight profile for newly observed group member
+                    p_name = card or nickname or uid
+                    aliases = [a for a in [p_name, uid, card, nickname] if a]
+                    aliases = list(dict.fromkeys(aliases))
+                    traits = {"card": card, "nickname": nickname}
+                    if role in ("owner", "admin"):
+                        traits["group_role"] = role
+                    conn.execute(
+                        """
+                        INSERT INTO member_profiles (user_id, primary_name, aliases, tone_style, interests, traits, key_memories, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (uid, p_name, json.dumps(aliases, ensure_ascii=False), "普通群友", "[]", json.dumps(traits, ensure_ascii=False), "[]", now, now),
+                    )
+                    updated += 1
+        return updated
+
     def record_event(self, user_id, group_id, quote, context, source="interaction", tags=None, timestamp=None):
         """Records a timeline event scoped to a specific group, with recent deduplication."""
         now = time.time()
@@ -344,6 +509,27 @@ class MemoryEngine:
 
         # Robust regex supporting @bot, @123456, 🐟包, 鱼包, punctuation, and conversational prefixes
         bot_prefix = r"(?:(?:@\d+|@?(?:[🐟鱼小]*包[子]?|机器人|bot))\s*[，,：:!！\s]*)?"
+
+        # 0. Check direct annotation commands: 标注 / 标记 / 绑定 / 记住 / 认认
+        annotate_prefix = r"(?:(?:请|帮我|麻烦|快)?(?:标注|标记|绑定|记住|认认|认一下|叫他|认准))\s*"
+        annotate_pat = re.compile(
+            r"^" + bot_prefix + annotate_prefix + r"(?P<target>\[CQ:at,qq=\d+\]|@\d+|\d{5,12}|[\w\u4e00-\u9fa5]{2,16})\s*(?:[是为：:]\s*|\s+)(?P<info>.+)$",
+            re.IGNORECASE,
+        )
+        am = annotate_pat.match(raw)
+        if am:
+            target_raw = am.group("target").strip()
+            at_m = re.search(r"\d{5,12}", target_raw)
+            target = at_m.group(0) if at_m else target_raw
+            info_str = am.group("info").strip()
+            return {
+                "is_command": True,
+                "is_annotation": True,
+                "target": target,
+                "fact": info_str,
+                "content": raw,
+            }
+
         action_prefix = (
             r"(?:(?:请|帮我|麻烦|快)?(?:在)?小本本(?:上)?(?:记(?:录|下|上一笔|一笔|一下)?|写上)"
             r"|(?:请|帮我|麻烦|快)?(?:记在|记入|写在|写进|记)小本本(?:上)?(?:记|录|写)?"
@@ -361,6 +547,19 @@ class MemoryEngine:
         content = (m.group("content") or m.group("content2") or "").strip()
         if not content:
             return {"is_command": False}
+
+        # Check if content starts with an @ mention or explicit QQ number
+        at_leading = re.match(r"^(?:给\s*)?(?P<target>\[CQ:at,qq=\d+\]|@\d+|\d{5,12})\s*(?:记上|记一笔|记上一笔)?\s*(?:[：:，,\s]\s*)?(?P<fact>.+)$", content)
+        if at_leading:
+            target_raw = at_leading.group("target").strip()
+            at_m = re.search(r"\d{5,12}", target_raw)
+            target = at_m.group(0) if at_m else target_raw
+            return {
+                "is_command": True,
+                "target": target,
+                "fact": at_leading.group("fact").strip(),
+                "content": content,
+            }
 
         # 1. Match colon delimiter: 给老王记上一笔：天天摸鱼打卡 or 时月: 装纯
         colon_m = re.match(r"^(?:给\s*)?(?P<target>[\w\u4e00-\u9fa5]{2,16}?)(?:\s*(?:记上|记一笔|记上一笔))?\s*[：:]\s*(?P<fact>.+)$", content)
@@ -419,6 +618,46 @@ class MemoryEngine:
         target = cmd.get("target")
         fact = cmd.get("fact")
         content = cmd.get("content")
+
+        # If target is a QQ number, check if this is an identity annotation (e.g. "是 时月", "其实是时月", "时月 (地牢主)")
+        if target and str(target).isdigit():
+            ident_m = re.match(
+                r"^(?:其实(?:是|叫)|原来(?:是|叫)|是|叫|为)?\s*(?P<name>[\w\u4e00-\u9fa5]{2,12})(?:\s*[（\(](?P<role>[^）\)]+)[）\)])?(?:\s*(?:其实|平时|特征|特点|喜欢|爱)?\s*(?P<desc>.+))?$",
+                fact,
+            )
+            if ident_m and ident_m.group("name") not in ("喜欢", "讨厌", "经常", "天天", "特别"):
+                p_name = ident_m.group("name").strip()
+                p_role = (ident_m.group("role") or "").strip()
+                p_desc = (ident_m.group("desc") or "").strip()
+
+                mapping_entry = {
+                    "name": p_name,
+                    "aliases": [p_name],
+                    "role": p_role,
+                    "desc": p_desc or fact,
+                }
+                seed_cand = self.find_profile(p_name)
+                if seed_cand and seed_cand["user_id"].startswith("seed:"):
+                    mapping_entry["seed_key"] = seed_cand["user_id"]
+
+                self.sync_member_mappings({target: mapping_entry}, group_id=group_id)
+                ack_hint = f"认准了！已把 QQ {target} 标注为【{p_name}】{f'（{p_role}）' if p_role else ''}，小本本已锁定，以后发言精准怼他！"
+
+                ev_id = self.record_event(
+                    user_id=target,
+                    group_id=group_id,
+                    quote=text,
+                    context=f"标注身份: {p_name} {p_role} {p_desc}".strip(),
+                    source="explicit_annotation",
+                    tags=["标注", "explicit_annotation"],
+                )
+                return {
+                    "event_id": ev_id,
+                    "target": p_name,
+                    "fact": fact or content,
+                    "user_id": target,
+                    "ack_hint": ack_hint,
+                }
 
         # Resolve target profile
         profile = None
@@ -677,7 +916,24 @@ class MemoryEngine:
             # Compact profile rendering
             p_name = prof["primary_name"]
             aliases = json.loads(prof["aliases"] or "[]")
-            alias_str = "/".join([a for a in aliases if a != p_name][:3]) or "无"
+            traits = json.loads(prof["traits"] or "{}")
+            card_name = traits.get("card") or ""
+            nickname = traits.get("nickname") or ""
+
+            # Identity details (QQ and Card)
+            id_parts = []
+            if uid and not uid.startswith("seed:") and not uid.startswith("member:"):
+                id_parts.append(f"QQ: {uid}")
+            if card_name and card_name != p_name:
+                id_parts.append(f"名片: {card_name}")
+            elif nickname and nickname != p_name:
+                id_parts.append(f"昵称: {nickname}")
+            id_str = f" ({' / '.join(id_parts)})" if id_parts else ""
+
+            # Filter aliases to avoid duplicating p_name, card, or uid
+            filtered_aliases = [a for a in aliases if a not in (p_name, uid, card_name, nickname)][:3]
+            alias_str = "/".join(filtered_aliases) or "无"
+
             tone = prof.get("tone_style") or "普通群友"
             interests = json.loads(prof["interests"] or "[]")
             interest_str = "、".join(interests[:4]) or "暂无明确"
@@ -696,7 +952,7 @@ class MemoryEngine:
                         raw_note = (ev["context"] or ev["quote"]).strip()
                         group_event_note = f" | 本群八卦: {raw_note[:45]}"
 
-            card = f"【群友档案：{p_name}】外号: {alias_str} | 风格: {tone} | XP喜好: {interest_str} | 核心记忆: {mem_str}{group_event_note}"
+            card = f"【群友档案：{p_name}{id_str}】外号: {alias_str} | 风格: {tone} | XP喜好: {interest_str} | 核心记忆: {mem_str}{group_event_note}"
             cards.append(card)
 
         return cards

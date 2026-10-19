@@ -13,7 +13,18 @@
       "persona": "little_whale",
       "participation": "natural",
       "trigger_mode": "mention_only",
-      "enabled": true
+      "enabled": true,
+      "member_mappings": {
+        "10001": {
+          "name": "张三",
+          "card": "示例名片-老张",
+          "aliases": ["老张", "张总"],
+          "role": "管理员",
+          "tone_style": "幽默风趣",
+          "interests": ["游戏", "动漫"],
+          "desc": "本群活跃老群友，说话搞笑"
+        }
+      }
     }
   }
 }

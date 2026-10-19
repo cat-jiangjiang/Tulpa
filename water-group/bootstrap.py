@@ -212,6 +212,10 @@ def main():
             print(f"✓ 人设卡路径   : {persona_file.relative_to(ROOT_DIR)}")
         print(f"✓ 触发唤醒模式 : {mode} ({'仅被@或点名唤醒，大群防烧 Token' if mention_only_bool else '自然插话'})")
         print(f"✓ 回复寻址模式 : {reply_addressing} ({'首个气泡带 quote: true 开启 QQ 原生引用回复，精准定位原话' if reply_addressing == 'quote' else '普通回复'})")
+        member_mappings = target_sess.get("member_mappings") or {}
+        if member_mappings:
+            annotated_summary = ", ".join(f"{v.get('name')}({k})" for k, v in member_mappings.items())
+            print(f"✓ 核心群友标注 : {annotated_summary} (号码与名片已绑定，发言自动精准识别)")
         print("------------------------------------------------------------------------")
         if persona_content:
             print("【已加载人设卡核心内容 - 主脑必须严格以此设定进行思考与发言】：")
@@ -230,6 +234,7 @@ def main():
         print(f"     }}")
         print("  4. 动态小本本记忆已挂载：发言群友的精简画像会自动出现在 chat_guidance.member_dossiers 中；群友说“记在小本本上”会自动入库；随时可调用 query_member_dossier 查询群友档案与专属八卦；回复时多结合对方外号与历史黑料调侃！")
         print("  5. QQ 原生引用回复：回复具体群友时，send_chat_reply 的首个文字气泡必须带上 \"quote\": true，自动开启 QQ 原生引用回复卡片精准定位原话！")
+        print("  6. 群成员精准标注：核心群友号码与名片已强绑定，上下文画像已透传 QQ/名片（如【群友：criss (QQ: 2057796208 / 名片: 时之锁-肠宝盒)】），务必结合其专属外号与核心狠料精准怼人！群里发“@🐟包 标注 <QQ/@> 是 <人名>”可秒级入库新群友！")
         print("------------------------------------------------------------------------")
         
         output_payload = {
@@ -241,6 +246,7 @@ def main():
             "persona_file": str(persona_file.relative_to(ROOT_DIR)) if persona_file else None,
             "trigger_mode": mode,
             "reply_addressing": reply_addressing,
+            "member_mappings": member_mappings,
             "next_call": {
                 "server": "tulpa",
                 "tool": "wait_chat_messages",

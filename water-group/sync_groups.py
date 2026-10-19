@@ -44,6 +44,16 @@ def get_onebot_groups(url, token):
         print(f"[Warn] 获取 OneBot 群列表失败: {e}")
     return []
 
+def get_onebot_group_members(url, token, group_id):
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        resp = requests.post(f"{url}/get_group_member_list", headers=headers, json={"group_id": int(group_id)}, timeout=5)
+        if resp.status_code == 200:
+            return resp.json().get("data", [])
+    except Exception as e:
+        print(f"[Warn] 获取群 {group_id} 成员列表失败: {e}")
+    return []
+
 def get_active_sessions(db_path):
     if not os.path.exists(db_path):
         return {}
@@ -94,6 +104,19 @@ def inspect_and_sync():
         participation = gcfg.get("participation") or config.get("default_participation", "natural")
         trigger_mode = gcfg.get("trigger_mode") or config.get("default_trigger_mode", "mention_only")
         reply_addressing = gcfg.get("reply_addressing") or config.get("default_reply_addressing", "quote")
+        member_mappings = gcfg.get("member_mappings") or config.get("member_mappings", {})
+
+        # 同步 OneBot 成员群名片与昵称
+        try:
+            from memory_engine import get_memory_engine
+            mem_engine = get_memory_engine()
+            ob_members = get_onebot_group_members(config["onebot_http_url"], config["onebot_token"], gid)
+            if ob_members:
+                mem_engine.sync_onebot_members(ob_members, group_id=gid)
+            if member_mappings:
+                mem_engine.sync_member_mappings(member_mappings, group_id=gid)
+        except Exception as e:
+            print(f"[Warn] 同步群 {gid} 成员档案或名片异常: {e}")
 
         if cid in active_sessions:
             sess = active_sessions[cid]
@@ -127,6 +150,9 @@ def inspect_and_sync():
             mode_desc = "仅@触发" if trigger_mode == "mention_only" else "自然参与"
             addr_desc = "QQ原生引用" if reply_addressing == "quote" else ("定向@" if reply_addressing == "at" else "双重提醒" if reply_addressing == "both" else "自然")
             print(f"✓ [监听就绪] 群 {gid} ({gname}) | 模式: {mode_desc} | 寻址: {addr_desc} | 人格: {sess['persona_name']} | Session: {sess['id']}")
+            if member_mappings:
+                annotated_summary = ", ".join(f"{v.get('name')}({k})" for k, v in member_mappings.items())
+                print(f"  └─ 已标注核心群友: {annotated_summary}")
             result["ready_groups"].append({
                 "group_id": gid,
                 "group_name": gname,
@@ -136,6 +162,7 @@ def inspect_and_sync():
                 "persona_preset": sess.get("persona_preset", persona),
                 "trigger_mode": trigger_mode,
                 "reply_addressing": reply_addressing,
+                "member_mappings": member_mappings,
                 "active": True
             })
         else:
