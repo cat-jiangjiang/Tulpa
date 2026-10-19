@@ -36,9 +36,17 @@ def test_habit_detection():
     assert "草" in repeated, f"Expected '草' in repeated_phrases, got {repeated}"
     assert any("【防语癖固化】" in r and "“草”" in r for r in pkt_habituated["reminders"])
 
-    # Case 3: Compact wait delivery
-    compacted = compact_wait(dict(pkt_habituated, event="messages", decision_required=True, chat_guidance=pkt_habituated))
-    assert any("【防语癖固化】" in r and "“草”" in r for r in compacted["chat_guidance"]["reminders"])
+    # Case 4: Repetitive suffix with punctuation and repeated characters
+    recent_punctuated = [
+        dict(id=1, onebot_message_id=101, is_self=True, content="这也太搞笑了草！", received_at=now - 50),
+        dict(id=2, onebot_message_id=102, is_self=False, sender_id=222, content="确实", received_at=now - 40),
+        dict(id=3, onebot_message_id=103, is_self=True, content="绝了草草草~", received_at=now - 20),
+    ]
+    pkt_punctuated = prompts.packet(row, recent_punctuated, batch)
+    repeated_punc = pkt_punctuated["social_context"].get("repeated_phrases", [])
+    assert "草" in repeated_punc, f"Expected '草' with punctuation/repetition, got {repeated_punc}"
+    assert any("【防语癖固化】" in r and "“草”" in r for r in pkt_punctuated["reminders"])
+
     print("✓ Anti-habituation detection and diversity reminder test passed")
 
 

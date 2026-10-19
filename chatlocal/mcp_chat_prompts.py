@@ -186,9 +186,11 @@ def social_state(row, recent, batch, *, now=None):
         COMMON_HABITS = ("草", "难绷", "蚌埠住了", "乐", "笑死", "确实", "6", "？", "好活", "离谱", "绝了", "真的假的", "笑嘻了")
         matches = {}
         for t in own_texts:
+            t_clean = re.sub(r'[\s!！?？~～.。…—_\-——]+$', '', t)
             for habit in COMMON_HABITS:
-                if t.endswith(habit) or t == habit:
+                if t_clean.endswith(habit) or t_clean == habit or t.endswith(habit) or re.search(re.escape(habit) + r'+$', t_clean):
                     matches[habit] = matches.get(habit, 0) + 1
+                    break
         for habit, count in matches.items():
             if count >= 2:
                 repeated_phrases.append(habit)
