@@ -56,11 +56,17 @@ def agent_options(config):
     return result
 
 
-def local_path(value):
+def resolve_path(value):
+    """Expand and absolutise a path against the program directory."""
     path = Path(value).expanduser()
     if not path.is_absolute():
         path = ROOT / path
-    path = path.resolve()
+    return path.resolve()
+
+
+def local_path(value):
+    """Resolve an import file, refusing anything outside the program directory."""
+    path = resolve_path(value)
     if not path.is_relative_to(ROOT):
         raise ValueError('请先把导出文件放入程序目录下的 imports 文件夹；仅访问当前工作目录内的导入文件。')
     return path

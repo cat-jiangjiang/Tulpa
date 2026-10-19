@@ -8,7 +8,7 @@ from pathlib import Path
 
 import jieba
 
-from .config import DB, DATA, ROOT, local_path
+from .config import DB, DATA, ROOT, local_path, resolve_path
 from .normalize import TZ, decode_export, display_time, normalize, stable_key
 from .media import hydrate,import_media,is_sticker,media_at,STICKER_PLACEHOLDER
 
@@ -22,7 +22,8 @@ def tokens(text):
 
 class Store:
     def __init__(self, path=DB):
-        self.path = local_path(path)
+        # Database locations are internal, so the import-file boundary does not apply.
+        self.path = resolve_path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript('''
