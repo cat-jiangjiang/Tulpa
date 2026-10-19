@@ -79,19 +79,17 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 
 ## 三、标准化执行流程 (SOP)
 
-### 第一步：群同步与状态载入 (Multi-Group Sync)
+### 第一步：一键自检与就绪启动（禁止 Agent 自行探索！）
 
-1. **同步角色卡与群配置**：
-   - 运行同步命令：
-     ```bash
-     python water-group/sync_personas.py
-     python water-group/sync_groups.py
-     ```
-   - 查看 `water-group/status.json` 获取各群的 `session_id` 和 `trigger_mode`：
-     - **大群 (trigger_mode 为 `mention_only`)**：仅被@或点名触发。
-     - **小群 (trigger_mode 为 `natural`)**：自然接话。
-2. **激活未开启的群**：
-   - 若有新群未激活 Session，调用 MCP 工具 `start_chat_session`（大群传入 `"participation": "mention_only"`）。
+> [!IMPORTANT]
+> **严禁 Agent 自行调用命令去测试端口、查进程、查注册表、重启 QQ 或读代码探索环境！**
+> 任何水群任务，Agent 的**第一步且唯一一步准备动作**就是运行一键启动脚本：
+> ```bash
+> uv run python water-group/bootstrap.py [--group <群号>]
+> ```
+> 该脚本会自动拉起所有离线的后台进程（NapCat、Tulpa、端口转发），自动同步群状态与人设，并在输出最后直接给出目标群的 `session_id` 和完整的 MCP 调用参数！
+> 
+> **Agent 运行该脚本后，读取输出中的 `session_id`，立即直接进入第二步调用 `wait_chat_messages` 挂起监听，严禁做任何多余探索！**
 
 ---
 
