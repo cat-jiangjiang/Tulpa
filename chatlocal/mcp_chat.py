@@ -1009,11 +1009,7 @@ class MCPChat:
 
     def query_member_dossier(self, grant, args):
         self.permission(grant)
-        import sys
-        wg_dir = str(PROJECT_ROOT / 'water-group')
-        if wg_dir not in sys.path:
-            sys.path.insert(0, wg_dir)
-        from memory_engine import get_memory_engine
+        from water_group.memory_engine import get_memory_engine
         engine = get_memory_engine()
         gid = args.get('group_id')
         if not gid and args.get('session_id'):
@@ -1026,11 +1022,7 @@ class MCPChat:
 
     def update_member_dossier(self, grant, args):
         self.permission(grant)
-        import sys
-        wg_dir = str(PROJECT_ROOT / 'water-group')
-        if wg_dir not in sys.path:
-            sys.path.insert(0, wg_dir)
-        from memory_engine import get_memory_engine
+        from water_group.memory_engine import get_memory_engine
         engine = get_memory_engine()
         return engine.update_member_dossier(
             identifier=str(args.get('identifier', '')),
@@ -1046,11 +1038,7 @@ class MCPChat:
 
     def consolidate_chat_memory(self, grant, args):
         self.permission(grant)
-        import sys
-        wg_dir = str(PROJECT_ROOT / 'water-group')
-        if wg_dir not in sys.path:
-            sys.path.insert(0, wg_dir)
-        from memory_engine import get_memory_engine
+        from water_group.memory_engine import get_memory_engine
         engine = get_memory_engine()
         gid = args.get('group_id')
         if not gid and args.get('session_id'):
@@ -1067,5 +1055,6 @@ class MCPChat:
             messages=args.get('messages'),
             summary=args.get('summary'),
         )
+
 
 
