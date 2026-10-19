@@ -909,11 +909,6 @@ class MemoryEngine:
             "reply_hint": f"调侃建议：可称呼其外号（{'/'.join(aliases[:3])}），根据其XP喜好（{'/'.join(interests[:3])}）自然插话，偶尔可用'我小本本上可记着...'翻黑料调侃。",
         }
 
-    @staticmethod
-    def _normalize_list(val):
-        """Normalizes string or list/iterable inputs into a deduplicated list of non-empty strings."""
-        return normalize_list(val)
-
     def update_member_dossier(
         self,
         identifier,
@@ -937,9 +932,9 @@ class MemoryEngine:
         ident_str = str(identifier).strip()
         prof = self.find_profile(ident_str)
 
-        norm_aliases = self._normalize_list(aliases)
-        norm_interests = self._normalize_list(interests)
-        norm_memories = self._normalize_list(key_memories)
+        norm_aliases = normalize_list(aliases)
+        norm_interests = normalize_list(interests)
+        norm_memories = normalize_list(key_memories)
         norm_traits = dict(traits) if isinstance(traits, dict) else ({} if traits is not None else None)
 
         now = time.time()
