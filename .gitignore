@@ -30,3 +30,9 @@ node_modules/
 /release/
 /build/
 /instances/
+
+# Water-group local configurations and sensitive runtime data
+water-group/config.json
+water-group/status.json
+water-group/logs/
+*yu_bao.md

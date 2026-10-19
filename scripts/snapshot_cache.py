@@ -94,8 +94,12 @@ def refresh_families(source, target, databases, *, _recovered=False):
                     for suffix in ('-wal','-shm'):
                         src=path.with_name(path.name+suffix)
                         dest=stable.with_name(stable.name+suffix)
-                        dest.unlink(missing_ok=True)
-                        if src.exists():shutil.copy2(src,dest)
+                        if src.exists():
+                            try: shutil.copy2(src,dest)
+                            except PermissionError:
+                                with src.open('rb') as s_f, dest.open('wb') as d_f: shutil.copyfileobj(s_f, d_f)
+                                try: shutil.copystat(src, dest)
+                                except OSError: pass
                     if signature_before == _family_signature(path):break
                 else:raise ValueError('数据库在复制期间更新；请重试，未推进进度。')
                 for suffix in ('-wal','-shm'):
@@ -109,7 +113,7 @@ def refresh_families(source, target, databases, *, _recovered=False):
             count('snapshot_reused_bytes',family[name][0])
             local=fingerprint(target,local_files)
         else:
-            with snapshot_db_family(path) as stable:
+            with snapshot_db_family(path, allow_active_wal=True) as stable:
                 for suffix in ('', '-wal', '-shm'):
                     src = stable.with_name(stable.name+suffix)
                     dest = destination.with_name(destination.name+suffix)

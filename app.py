@@ -73,11 +73,11 @@ def create_app():
     # Keep the old controls available as an advanced view, with the same data
     # and file-access boundaries. No second agent or persistence implementation.
     return gr.mount_gradio_app(app,build_app().queue(max_size=8),path='/legacy',
-        server_name='127.0.0.1',server_port=7860,show_error=False,
+        server_name='127.0.0.1',server_port=47860,show_error=False,
         enable_monitoring=False,footer_links=[],ssr_mode=False,
         theme=THEME,css=CSS,js=JS,
         blocked_paths=[str(ROOT/p) for p in ('.env','.git','.tmp','data','imports','tools','reports/private')],
         max_file_size='100mb')
 
 if __name__ == '__main__':
-    uvicorn.run(create_app(),host='127.0.0.1',port=7860,access_log=False)
+    uvicorn.run(create_app(),host='127.0.0.1',port=47860,access_log=False)

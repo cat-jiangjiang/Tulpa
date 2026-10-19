@@ -1,0 +1,18 @@
+{
+  "onebot_http_url": "http://127.0.0.1:43000",
+  "onebot_token": "YOUR_ONEBOT_TOKEN_HERE",
+  "self_account": "YOUR_QQ_ACCOUNT",
+  "self_names": ["小鲸鱼", "鲸鱼"],
+  "default_persona": "little_whale",
+  "default_participation": "natural",
+  "default_trigger_mode": "mention_only",
+  "groups": {
+    "123456789": {
+      "name": "示例交流群",
+      "persona": "little_whale",
+      "participation": "natural",
+      "trigger_mode": "mention_only",
+      "enabled": true
+    }
+  }
+}

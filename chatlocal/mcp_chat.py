@@ -6,6 +6,8 @@ tool slot. Message cursors are acknowledged explicitly, not on HTTP delivery.
 from . import reply_timing as timing
 import hashlib
 import json
+from pathlib import Path
+import shutil
 import threading
 import time
 import uuid
@@ -49,7 +51,7 @@ def schemas(tool):
              dict(conversation_id=dict(type='string', maxLength=120), persona=dict(type='string', maxLength=6000),
                   response_format=dict(type='string',enum=['compact','full'],default='compact',description='默认完整交付人格/规则一次；full 保留完整排查结构。'),
                   persona_preset=dict(type='string', maxLength=255, description='list_chat_personas 返回的 id，即 Markdown 文件名去掉 .md；支持中文。不要凭旧列表猜测。'),
-                  participation=dict(type='string', enum=['quiet','natural','active'], default='natural'), **key),
+                  participation=dict(type='string', enum=['quiet','natural','active','mention_only'], default='natural'), **key),
              ['conversation_id','idempotency_key']),
         tool('get_chat_session', '读取持续聊天上下文和进度；恢复时沿用 recovery 参数直接获取精简结果，full 可读取完整人格和协议。不会启动模型或自动发送。',
              dict(**sid,response_format=dict(type='string',enum=['compact','full'],default='full'),
@@ -67,7 +69,10 @@ def schemas(tool):
                   timeout_seconds=dict(type='number', minimum=1, maximum=180, default=150),
                   minimum_wait_seconds=dict(type='number',minimum=0,maximum=30,default=0,description='通常沿用 recovery.next_call；重试前在程序内等待，避免旧批次立即返回造成忙等。可被停止或取消打断，不超过 timeout_seconds。'),
                   quiet_seconds=dict(type='number', minimum=0, maximum=5, default=2),
-                  limit=dict(type='integer', minimum=1, maximum=50, default=30)), ['session_id']),
+                  limit=dict(type='integer', minimum=1, maximum=50, default=30),
+                  mention_only=dict(type='boolean', default=False, description='设为 true 时，仅在收到明确 @ 机器人账号或引用机器人的消息时才唤醒返回；普通群友闲聊在后台保持静默等待并维护上下文窗口，极大节省 Token。'),
+                  followup_turns=dict(type='integer', minimum=0, maximum=10, default=3, description='在被 @ 唤醒后，允许在没有再次显式 @ 的情况下连贯接续互动的消息轮数上限，默认 3 轮。兼顾对话连贯性与 Token 消耗控制。'),
+                  followup_seconds=dict(type='number', minimum=5, maximum=180, default=60, description='被 @ 唤醒后保持活跃对话窗口的最长静默超时秒数，默认 60 秒。超过此时间未有人继续说话则自动休眠。')), ['session_id']),
         tool('send_chat_message', '在持续群聊中发言，默认普通文本。可分别指定回应事件、显示原生引用和原生 @；近距离且对象明确时不挂标记，话题交错时按需引用，确需点名才 @。分成多条通常仅首条挂标记，后续省略。每次核对授权、目标、停止状态和幂等编号；已授权后直接发送。',
              dict(**sid, **key, text=dict(type='string', minLength=1, maxLength=4000, description='实际正文，CQ 样式文字保持普通文本，不要手写 CQ 或 @昵称冒充消息段。'),
                   reply_to_event_id=dict(type='integer', minimum=1, maximum=2**63-1, description='get_chat_session.context / wait_chat_messages.messages 中已读取消息的 id；不是 M 编号、onebot_message_id 或 read_through_id。仅选择回应目标，默认不显示引用。'),
@@ -94,6 +99,7 @@ class MCPChat:
         self.lock = threading.RLock()
         self.waiters = set()
         self.events = {}
+        self.dialogue_windows = {}
         self.available = True
         with access.connect() as db:
             db.executescript('''
@@ -197,11 +203,36 @@ class MCPChat:
             raise ValueError('聊天会话不存在。')
         return dict(row)
 
+    def sync_session_persona(self, sid, gid, row):
+        try:
+            with open('water-group/config.json', 'r', encoding='utf-8') as _cf:
+                _cfg = json.load(_cf)
+            _gid = row['conversation_id'].split(':')[-1]
+            _group_cfg = _cfg.get('groups', {}).get(_gid)
+            if not _group_cfg:
+                return row
+            _target_persona = _group_cfg.get('persona') or _cfg.get('default_persona')
+            if _target_persona:
+                _src = Path('water-group/personas') / f'{_target_persona}.md'
+                _dst = prompts.ROOT / f'{_target_persona}.md'
+                if _src.exists() and (not _dst.exists() or _src.stat().st_mtime > _dst.stat().st_mtime):
+                    shutil.copy2(_src, _dst)
+                _resolved = prompts.resolve_persona_details(preset=_target_persona)
+                if _target_persona != row.get('persona_preset') or _resolved['prompt'] != row.get('persona'):
+                    with self.access.connect() as _db:
+                        _db.execute('UPDATE chat_sessions SET persona=?, persona_preset=?, persona_name=?, updated=? WHERE id=?',
+                                    (_resolved['prompt'], _target_persona, _resolved['name'], time.time(), sid))
+                    return self.row(sid, gid)
+        except Exception:
+            pass
+        return row
+
     @timing.stage('chat.validate')
     def validate(self, sid, gid, active=True):
         grant = self.access.by_id(gid, source=False)
         self.permission(grant)
         row = self.row(sid, gid)
+        row = self.sync_session_persona(sid, gid, row)
         if active and (not row['active'] or not self.available):
             raise ChatStopped('持续聊天已停止或服务已关闭，未发送。')
         # A bounded grant must not keep sending after its evidence window expires.
@@ -618,6 +649,18 @@ class MCPChat:
             quiet=args.get('quiet_seconds',self.turns.policy()['quiet_seconds']);last_max=None;changed_at=time.monotonic();heartbeat=0
             collecting_since=time.monotonic()
             limit=args.get('limit',30);echoes=0
+            mention_only=bool(args.get('mention_only') or row.get('participation')=='mention_only')
+            account=row['conversation_id'].split(':')[0]
+            followup_turns=args.get('followup_turns', 3)
+            followup_seconds=args.get('followup_seconds', 60)
+            dialogue_window=self.dialogue_windows.setdefault(sid, {'active_until': 0, 'remaining_followups': 0})
+            with self.access.connect() as db:
+                last_turn=db.execute("SELECT payload FROM chat_turn_plans WHERE session_id=? ORDER BY created DESC LIMIT 1",(sid,)).fetchone()
+                if last_turn:
+                    try:
+                        if json.loads(last_turn['payload']).get('action')=='silence':
+                            dialogue_window['remaining_followups']=0
+                    except Exception:pass
             while True:
                 if cancel.is_set():return dict(event='cancelled',messages=[],note='仅取消此次等待；会话未停止，原进度可接续。')
                 try:grant,row=self.validate(sid,gid)
@@ -636,6 +679,57 @@ class MCPChat:
                 newest=(newest,notices[-1]['notice_id'] if notices else 0)
                 if newest!=last_max:last_max=newest;changed_at=time.monotonic()
                 now=time.monotonic()
+
+                has_mention=False
+                is_in_dialogue=False
+                if mention_only:
+                    allow_learning=False
+                    if pending:
+                        with self.access.connect() as db:
+                            own_rows=db.execute("SELECT message_id FROM chat_inbox WHERE session_id=? AND coalesce(json_extract(payload,'$.is_self'),0)=1 ORDER BY id DESC LIMIT 50",(sid,)).fetchall()
+                            own_ids={str(r[0]) for r in own_rows}
+                        names = []
+                        try:
+                            with open('water-group/config.json', 'r', encoding='utf-8') as _f:
+                                cfg_names = json.load(_f).get('self_names')
+                                if isinstance(cfg_names, list) and cfg_names:
+                                    names = [str(n) for n in cfg_names if n]
+                        except Exception:
+                            pass
+                        if not names:
+                            p_name = row.get('persona_name')
+                            if p_name and p_name != '自定义人格':
+                                names.append(p_name)
+                        keywords = set(names)
+                        if account:
+                            keywords.add(account)
+                        kw_list=[k.casefold() for k in keywords if k]
+                        for r in pending:
+                            payload=json.loads(r['payload'])
+                            if payload.get('is_self'):continue
+                            segs=payload.get('segments',[])
+                            if any(s.get('type')=='at' and str(s.get('qq','')) in (account,'all') for s in segs):
+                                has_mention=True;break
+                            if any(s.get('type')=='reply' and str(s.get('onebot_message_id','')) in own_ids for s in segs):
+                                has_mention=True;break
+                            txt=(payload.get('content','') or payload.get('text',''))+" "+" ".join(s.get('text','') for s in segs if s.get('type')=='text')
+                            txt_lower=txt.casefold()
+                            if any(kw in txt_lower for kw in kw_list):
+                                has_mention=True;break
+
+                    if has_mention:
+                        dialogue_window['remaining_followups']=followup_turns
+                        dialogue_window['active_until']=time.monotonic()+followup_seconds
+
+                    is_in_dialogue=bool(dialogue_window.get('remaining_followups',0)>0 and time.monotonic()<dialogue_window.get('active_until',0))
+
+                    if not has_mention and not is_in_dialogue and now<end:
+                        if len(pending)>15:
+                            trim_through=pending[-10]['id']
+                            with self.access.connect() as db:
+                                db.execute('UPDATE chat_sessions SET cursor=? WHERE id=? AND active=1',(trim_through,sid))
+                            continue
+
                 collection=self.turns.collection(row,pending,quiet,collecting_since)
                 waiting=self.turns.waiting(sid)
                 new_input=False
@@ -650,7 +744,26 @@ class MCPChat:
                     waiting=None
                 deferred=bool(waiting and time.time()<waiting['not_before'] and not new_input)
                 learning=self.learning.wake(grant,row) if allow_learning and not pending and not notices and now>=earliest else dict(ready=False)
-                if (now>=earliest and ((pending and not deferred and (len(pending)>limit or collection['ready'])) or (notices and now-changed_at>=quiet) or learning['ready'])) or now>=end:
+
+                ready_to_return=False
+                if mention_only:
+                    if (has_mention or is_in_dialogue) and (len(pending)>limit or collection['ready']):
+                        ready_to_return=True
+                        if not has_mention and is_in_dialogue:
+                            dialogue_window['remaining_followups']-=1
+                            dialogue_window['active_until']=time.monotonic()+followup_seconds
+                else:
+                    if (len(pending)>limit or collection['ready']) or (notices and now-changed_at>=quiet) or learning['ready']:
+                        ready_to_return=True
+
+                if (now>=earliest and pending and not deferred and ready_to_return) or now>=end:
+                    if mention_only and not has_mention and not is_in_dialogue and now>=end:
+                        if pending:
+                            through=pending[-1]['id']
+                            with self.access.connect() as db:
+                                db.execute('UPDATE chat_sessions SET cursor=?,offered=max(offered,?) WHERE id=? AND active=1',(through,through,sid))
+                                db.executemany('UPDATE chat_inbox SET delivered=1 WHERE session_id=? AND id=?',[(sid,m['id']) for m in pending])
+                            pending=[]
                     items=self.details.enrich(grant,row,self.messages(pending[:limit] if not deferred else []),cancel)
                     through=items[-1]['id'] if items else max(row['cursor'],row['dropped_through'])
                     with self.lock:
