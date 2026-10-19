@@ -13,12 +13,14 @@ Boundary Rules:
 """
 import json
 from contextlib import contextmanager
-import os
 import re
 import sqlite3
 import threading
 import time
 from pathlib import Path
+
+from memory_commands import known_names, parse_command
+from memory_format import normalize_list, render_l1_card
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "group_memories.sqlite3"
@@ -494,120 +496,27 @@ class MemoryEngine:
             return event_id
 
     def parse_explicit_command(self, text):
-        """Recognizes user banter commands like:
+        """Recognises user banter commands like:
 
         - 🐟包 记在小本本上 [某人] 其实[喜好/事实]
         - @bot 记在小本本上 [某人] 喜欢[某事物]
         - 小本本记录 [内容]
         - 记在小本本上 [某人] [喜好/事实]
         - 快记在小本本上 [某人] [喜好/事实]
+
+        The grammar lives in memory_commands; this method only supplies the
+        profile lookups it needs.
         """
-        if not text or not isinstance(text, str):
-            return {"is_command": False}
+        return parse_command(text, self._known_command_names, self._primary_name)
 
-        raw = text.strip()
-
-        # Robust regex supporting @bot, @123456, 🐟包, 鱼包, punctuation, and conversational prefixes
-        bot_prefix = r"(?:(?:@\d+|@?(?:[🐟鱼小]*包[子]?|机器人|bot))\s*[，,：:!！\s]*)?"
-
-        # 0. Check direct annotation commands: 标注 / 标记 / 绑定 / 记住 / 认认
-        annotate_prefix = r"(?:(?:请|帮我|麻烦|快)?(?:标注|标记|绑定|记住|认认|认一下|叫他|认准))\s*"
-        annotate_pat = re.compile(
-            r"^" + bot_prefix + annotate_prefix + r"(?P<target>\[CQ:at,qq=\d+\]|@\d+|\d{5,12}|[\w\u4e00-\u9fa5]{2,16})\s*(?:[是为：:]\s*|\s+)(?P<info>.+)$",
-            re.IGNORECASE,
-        )
-        am = annotate_pat.match(raw)
-        if am:
-            target_raw = am.group("target").strip()
-            at_m = re.search(r"\d{5,12}", target_raw)
-            target = at_m.group(0) if at_m else target_raw
-            info_str = am.group("info").strip()
-            return {
-                "is_command": True,
-                "is_annotation": True,
-                "target": target,
-                "fact": info_str,
-                "content": raw,
-            }
-
-        action_prefix = (
-            r"(?:(?:请|帮我|麻烦|快)?(?:在)?小本本(?:上)?(?:记(?:录|下|上一笔|一笔|一下)?|写上)"
-            r"|(?:请|帮我|麻烦|快)?(?:记在|记入|写在|写进|记)小本本(?:上)?(?:记|录|写)?"
-            r"|(?:拿|用)小本本(?:记(?:录|下|上一笔|一笔|一下)?|写上))"
-        )
-        cmd_pattern = re.compile(
-            r"^" + bot_prefix + action_prefix + r"\s*[：:，,\s]\s*(?P<content>.+)$|^" + bot_prefix + action_prefix + r"\s*(?P<content2>\S.+)$",
-            re.IGNORECASE,
-        )
-
-        m = cmd_pattern.match(raw)
-        if not m:
-            return {"is_command": False}
-
-        content = (m.group("content") or m.group("content2") or "").strip()
-        if not content:
-            return {"is_command": False}
-
-        # Check if content starts with an @ mention or explicit QQ number
-        at_leading = re.match(r"^(?:给\s*)?(?P<target>\[CQ:at,qq=\d+\]|@\d+|\d{5,12})\s*(?:记上|记一笔|记上一笔)?\s*(?:[：:，,\s]\s*)?(?P<fact>.+)$", content)
-        if at_leading:
-            target_raw = at_leading.group("target").strip()
-            at_m = re.search(r"\d{5,12}", target_raw)
-            target = at_m.group(0) if at_m else target_raw
-            return {
-                "is_command": True,
-                "target": target,
-                "fact": at_leading.group("fact").strip(),
-                "content": content,
-            }
-
-        # 1. Match colon delimiter: 给老王记上一笔：天天摸鱼打卡 or 时月: 装纯
-        colon_m = re.match(r"^(?:给\s*)?(?P<target>[\w\u4e00-\u9fa5]{2,16}?)(?:\s*(?:记上|记一笔|记上一笔))?\s*[：:]\s*(?P<fact>.+)$", content)
-        if colon_m:
-            target = colon_m.group("target").strip()
-            fact = colon_m.group("fact").strip()
-            return {"is_command": True, "target": target, "fact": fact, "content": content}
-
-        # 2. Check if content starts with a known member profile (longest candidate first)
+    def _known_command_names(self):
         with self.lock, self._connect() as conn:
             rows = conn.execute("SELECT primary_name, aliases FROM member_profiles").fetchall()
-        known_names = set()
-        for r in rows:
-            known_names.add(r["primary_name"])
-            for a in json.loads(r["aliases"] or "[]"):
-                if len(str(a)) >= 2 and str(a) not in ("领导", "群友"):
-                    known_names.add(str(a))
+        return known_names(rows)
 
-        for cand in sorted(known_names, key=len, reverse=True):
-            if content.startswith(cand):
-                fact_str = content[len(cand):].strip(" ：:，,")
-                if fact_str:
-                    prof = self.find_profile(cand)
-                    target_name = prof["primary_name"] if prof else cand
-                    return {
-                        "is_command": True,
-                        "target": target_name,
-                        "fact": fact_str,
-                        "content": content,
-                    }
-
-        # 3. Match target with predicate / transition words (e.g. "老王 其实天天打卡", "张三 喜欢吃螺蛳粉")
-        # NOTE: The predicate words MUST be captured as part of (?P<fact>...) so verbs like "喜欢" are not lost!
-        trans_m = re.match(
-            r"^(?:给\s*)?(?P<target>[\w\u4e00-\u9fa5]{2,12}?)\s*(?:记上|记一笔|记上一笔)?\s*(?P<fact>(?:其实|原来|特别|非常|最|平时|经常|天天|整天|又|一直|每天|是个|是|爱|喜欢|讨厌|沉迷).+)$",
-            content,
-        )
-        if trans_m:
-            target = trans_m.group("target").strip()
-            fact = trans_m.group("fact").strip()
-            return {"is_command": True, "target": target, "fact": fact, "content": content}
-
-        # 4. Fallback: space-separated "target fact"
-        parts = content.split(maxsplit=1)
-        if len(parts) == 2 and 2 <= len(parts[0]) <= 12:
-            return {"is_command": True, "target": parts[0].strip(), "fact": parts[1].strip(), "content": content}
-
-        return {"is_command": True, "target": None, "fact": content, "content": content}
+    def _primary_name(self, candidate):
+        prof = self.find_profile(candidate)
+        return prof["primary_name"] if prof else None
 
     def handle_explicit_command(self, sender_id, sender_name, group_id, text):
         """Processes an explicit banter command, updating DB and compact profiles."""
@@ -918,33 +827,6 @@ class MemoryEngine:
                 continue
             seen_uids.add(uid)
 
-            # Compact profile rendering
-            p_name = prof["primary_name"]
-            aliases = json.loads(prof["aliases"] or "[]")
-            traits = json.loads(prof["traits"] or "{}")
-            card_name = traits.get("card") or ""
-            nickname = traits.get("nickname") or ""
-
-            # Identity details (QQ and Card)
-            id_parts = []
-            if uid and not uid.startswith("seed:") and not uid.startswith("member:"):
-                id_parts.append(f"QQ: {uid}")
-            if card_name and card_name != p_name:
-                id_parts.append(f"名片: {card_name}")
-            elif nickname and nickname != p_name:
-                id_parts.append(f"昵称: {nickname}")
-            id_str = f" ({' / '.join(id_parts)})" if id_parts else ""
-
-            # Filter aliases to avoid duplicating p_name, card, or uid
-            filtered_aliases = [a for a in aliases if a not in (p_name, uid, card_name, nickname)][:3]
-            alias_str = "/".join(filtered_aliases) or "无"
-
-            tone = prof.get("tone_style") or "普通群友"
-            interests = json.loads(prof["interests"] or "[]")
-            interest_str = "、".join(interests[:4]) or "暂无明确"
-            memories = json.loads(prof["key_memories"] or "[]")
-            mem_str = "；".join(memories[:2]) or "暂无专属记录"
-
             # Check for latest group-scoped event note if any
             group_event_note = ""
             if group_id:
@@ -954,11 +836,9 @@ class MemoryEngine:
                         (uid, str(group_id)),
                     ).fetchone()
                     if ev:
-                        raw_note = (ev["context"] or ev["quote"]).strip()
-                        group_event_note = f" | 本群八卦: {raw_note[:45]}"
+                        group_event_note = (ev["context"] or ev["quote"]).strip()
 
-            card = f"【群友档案：{p_name}{id_str}】外号: {alias_str} | 风格: {tone} | XP喜好: {interest_str} | 核心记忆: {mem_str}{group_event_note}"
-            cards.append(card)
+            cards.append(render_l1_card(prof, group_event_note))
 
         return cards
 
@@ -1032,18 +912,7 @@ class MemoryEngine:
     @staticmethod
     def _normalize_list(val):
         """Normalizes string or list/iterable inputs into a deduplicated list of non-empty strings."""
-        if val is None:
-            return None
-        if isinstance(val, str):
-            val = [val]
-        elif not isinstance(val, (list, tuple, set)):
-            val = [str(val)]
-        res = []
-        for item in val:
-            s = str(item).strip()
-            if s and s not in res:
-                res.append(s)
-        return res
+        return normalize_list(val)
 
     def update_member_dossier(
         self,

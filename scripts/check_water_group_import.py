@@ -36,8 +36,15 @@ def test_imports():
     import water_group.fwd as fwd
     assert fwd is not None
 
-    # 7. Test __all__ and clean namespace export
-    assert sorted(water_group.__all__) == sorted(["memory_engine", "bootstrap", "sync_groups", "sync_personas", "fwd"])
+    # 7. Extracted memory helpers stay reachable through the bridge
+    from water_group.memory_commands import parse_command
+    from water_group.memory_format import render_l1_card
+    assert callable(parse_command) and callable(render_l1_card)
+
+    # 8. Test __all__ and clean namespace export
+    assert sorted(water_group.__all__) == sorted([
+        "memory_engine", "memory_commands", "memory_format",
+        "bootstrap", "sync_groups", "sync_personas", "fwd"])
     local_ns = {}
     exec("from water_group import *", local_ns)
     for expected in water_group.__all__:
