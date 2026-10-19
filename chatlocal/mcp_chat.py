@@ -392,11 +392,7 @@ class MCPChat:
             speaker_ids = [m.get('sender_id') for m in items if not m.get('is_self') and m.get('sender_id')]
             speaker_names = [m.get('sender') for m in items if not m.get('is_self') and m.get('sender')]
             if speaker_ids or speaker_names:
-                import sys
-                wg_dir = str(PROJECT_ROOT / 'water-group')
-                if wg_dir not in sys.path:
-                    sys.path.insert(0, wg_dir)
-                from memory_engine import get_memory_engine
+                from water_group.memory_engine import get_memory_engine
                 engine = get_memory_engine()
                 gid = row['conversation_id'].split(':')[-1]
                 l1_cards = engine.build_l1_context(gid, speaker_ids, speaker_names)
@@ -544,11 +540,7 @@ class MCPChat:
             if inserted:
                 self.learning.observe(row,payload)
                 try:
-                    import sys
-                    wg_dir = str(PROJECT_ROOT / 'water-group')
-                    if wg_dir not in sys.path:
-                        sys.path.insert(0, wg_dir)
-                    from memory_engine import get_memory_engine
+                    from water_group.memory_engine import get_memory_engine
                     get_memory_engine().observe_message(row['conversation_id'].split(':')[-1], payload)
                 except Exception:
                     pass
@@ -869,11 +861,7 @@ class MCPChat:
                     kind='messages' if items else 'reactions' if notices and ready else 'learning_ready' if learning['ready'] and ready else 'idle' if ready else 'source_unavailable'
                     if kind == 'idle':
                         try:
-                            import sys
-                            wg_dir = str(PROJECT_ROOT / 'water-group')
-                            if wg_dir not in sys.path:
-                                sys.path.insert(0, wg_dir)
-                            from memory_engine import get_memory_engine
+                            from water_group.memory_engine import get_memory_engine
                             with self.access.connect() as _db:
                                 _recent_rows = _db.execute('SELECT payload FROM chat_inbox WHERE session_id=? ORDER BY id DESC LIMIT 20', (sid,)).fetchall()
                             if _recent_rows:

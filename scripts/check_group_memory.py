@@ -21,9 +21,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "water-group"))
 
-from memory_engine import MemoryEngine
+# Import through the bridge package so this suite does not create a second
+# top-level copy of the engine under the name `memory_engine`.
+from water_group.memory_engine import MemoryEngine
 from chatlocal.mcp_chat import CHAT_TOOLS, schemas as chat_schemas
 from chatlocal.mcp_chat_output import compact_wait
 

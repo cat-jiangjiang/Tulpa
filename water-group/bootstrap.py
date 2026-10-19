@@ -9,8 +9,13 @@ from pathlib import Path
 import requests
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT_DIR))
-sys.path.insert(0, str(ROOT_DIR / "water-group"))
+
+# When launched as a script (`python water-group/bootstrap.py`) this file is
+# __main__, so the repository root is not on sys.path yet and the bridge
+# package cannot be found. Importing through the bridge is what keeps every
+# water-group file loaded under exactly one module name.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(ROOT_DIR))
 
 NAPCAT_DIR = ROOT_DIR / "tools" / "napcat-shell"
 FWD_SCRIPT = ROOT_DIR / "water-group" / "fwd.py"
@@ -165,7 +170,7 @@ def ensure_forwarder():
 
 def run_sync():
     try:
-        from sync_groups import inspect_and_sync
+        from water_group.sync_groups import inspect_and_sync
         return inspect_and_sync()
     except Exception as e:
         print(f"[Warn] 同步群聊状态失败: {e}")
@@ -207,7 +212,7 @@ def main():
 
     print("\n5. 正在装载群友动态小本本记忆库...")
     try:
-        from memory_engine import get_memory_engine
+        from water_group.memory_engine import get_memory_engine
         mem_engine = get_memory_engine()
         mem_engine.seed_from_persona()
         mem_count = mem_engine.get_member_count()

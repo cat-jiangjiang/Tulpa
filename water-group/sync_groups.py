@@ -5,9 +5,14 @@ import time
 import requests
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT_DIR)
-sys.path.insert(0, os.path.join(ROOT_DIR, "water-group"))
-from sync_personas import sync_personas
+
+# When launched as a script this file is __main__, so the repository root is
+# not on sys.path yet and the bridge package cannot be found.
+if __package__ in (None, ""):
+    sys.path.insert(0, ROOT_DIR)
+
+from water_group.sync_personas import sync_personas
+from water_group.memory_engine import get_memory_engine
 from chatlocal import mcp_chat_prompts as prompts
 from chatlocal.sqlite_util import connect as sqlite_connect
 
@@ -104,7 +109,6 @@ def inspect_and_sync():
 
         # 同步 OneBot 成员群名片与昵称
         try:
-            from memory_engine import get_memory_engine
             mem_engine = get_memory_engine()
             ob_members = get_onebot_group_members(config["onebot_http_url"], config["onebot_token"], gid)
             if ob_members:

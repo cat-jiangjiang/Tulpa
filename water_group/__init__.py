@@ -9,6 +9,11 @@ Enables standard Python import conventions:
 
 Resolves the Python limitation where hyphenated directory names (water-group)
 cannot be imported directly as valid identifiers.
+
+This module is the ONLY place that touches sys.path for the water-group
+subsystem, and every water-group file is reachable as ``water_group.<name>``
+exactly once. Two module names for one file would give the process two copies
+of its state, which is how the memory engine singleton used to split.
 """
 import importlib
 import sys
@@ -24,27 +29,27 @@ if _wg_str not in sys.path:
 if _wg_str not in __path__:
     __path__.append(_wg_str)
 
-# Pre-import key submodules so they are available immediately
-__all__ = ["memory_engine", "memory_commands", "memory_format", "bootstrap", "sync_groups", "sync_personas", "fwd"]
-
-for _mod_name in __all__:
-    try:
-        _mod = importlib.import_module(f"water_group.{_mod_name}")
-        globals()[_mod_name] = _mod
-    except Exception:
-        pass
+_SUBMODULES = frozenset({
+    "memory_engine", "memory_commands", "memory_format",
+    "bootstrap", "sync_groups", "sync_personas", "fwd",
+})
+__all__ = sorted(_SUBMODULES)
 
 
 def __getattr__(name: str):
-    try:
-        mod = importlib.import_module(f"water_group.{name}")
-        globals()[name] = mod
-        return mod
-    except ImportError:
-        pass
-    try:
-        mod = importlib.import_module(name)
-        globals()[name] = mod
-        return mod
-    except ImportError as exc:
-        raise AttributeError(f"module 'water_group' has no attribute '{name}'") from exc
+    """Resolve a water-group submodule lazily (PEP 562).
+
+    Only names in _SUBMODULES resolve, and always under the ``water_group.``
+    prefix, so a file is never loaded twice under two names. Lazy resolution
+    also keeps optional dependencies (bootstrap needs requests) out of the
+    import path of the memory engine.
+    """
+    if name not in _SUBMODULES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = importlib.import_module(f"{__name__}.{name}")
+    globals()[name] = module
+    return module
+
+
+def __dir__():
+    return sorted(set(globals()) | _SUBMODULES)

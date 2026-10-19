@@ -9,9 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "water-group"))
 
-from bootstrap import check_tulpa_mcp_health, wait_tulpa_mcp_ready
+from water_group.bootstrap import check_tulpa_mcp_health, wait_tulpa_mcp_ready
 
 
 class MockMCPHandler(http.server.BaseHTTPRequestHandler):

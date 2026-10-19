@@ -19,8 +19,8 @@ import threading
 import time
 from pathlib import Path
 
-from memory_commands import known_names, parse_command
-from memory_format import normalize_list, render_l1_card
+from .memory_commands import known_names, parse_command
+from .memory_format import normalize_list, render_l1_card
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "group_memories.sqlite3"
