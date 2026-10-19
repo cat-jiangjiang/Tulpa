@@ -83,6 +83,12 @@ def test_mcp_health_check():
         assert ok is False, f"Expected closed port to fail, got {ok}, {msg}"
         print("✓ Closed port rejection check passed")
 
+        # 6. Test custom host parameter & loopback proxy isolation
+        MockMCPHandler.mode = "200"
+        ok_host, msg_host = check_tulpa_mcp_health(port, host="127.0.0.1")
+        assert ok_host is True and "200" in msg_host
+        print("✓ Host parameter & proxy isolation verified")
+
     finally:
         server.shutdown()
 

@@ -79,16 +79,16 @@ def ensure_napcat():
             return True, "启动成功并已连接"
     return False, "启动超时，请检查 NapCat 日志或是否需要扫码 (WebUI: http://127.0.0.1:46099)"
 
-def check_tulpa_mcp_health(port: int = 48777, token: str = None, timeout: float = 1.5) -> tuple[bool, str]:
+def check_tulpa_mcp_health(port: int = 48777, host: str = "127.0.0.1", token: str = None, timeout: float = 1.5) -> tuple[bool, str]:
     """Probes the Tulpa MCP HTTP endpoint with a JSON-RPC POST request.
     
     Verifies that the ASGI application on port 48777 is not only listening on TCP
     but is actively processing JSON-RPC MCP requests (returns 200 on authorized ping
-    or 401 on protocol endpoint verification).
+    or 401 on protocol endpoint verification). Bypasses system proxies for clean loopback probing.
     """
-    url = f"http://127.0.0.1:{port}/mcp"
+    url = f"http://{host}:{port}/mcp"
     headers = {
-        "Host": f"127.0.0.1:{port}",
+        "Host": f"{host}:{port}",
         "Content-Type": "application/json",
     }
     if token:
@@ -99,7 +99,7 @@ def check_tulpa_mcp_health(port: int = 48777, token: str = None, timeout: float 
         "method": "ping",
     }
     try:
-        resp = requests.post(url, headers=headers, json=body, timeout=timeout)
+        resp = requests.post(url, headers=headers, json=body, timeout=timeout, proxies={"http": None, "https": None})
         # 200 means full JSON-RPC response; 401 means MCP endpoint is active and guarded
         if resp.status_code in (200, 401):
             return True, f"HTTP POST 握手成功 (状态码: {resp.status_code})"
@@ -107,7 +107,7 @@ def check_tulpa_mcp_health(port: int = 48777, token: str = None, timeout: float 
     except Exception as e:
         return False, f"HTTP POST 握手失败: {e}"
 
-def wait_tulpa_mcp_ready(port: int = 48777, token: str = None, timeout_seconds: float = 15.0) -> tuple[bool, str]:
+def wait_tulpa_mcp_ready(port: int = 48777, host: str = "127.0.0.1", token: str = None, timeout_seconds: float = 15.0) -> tuple[bool, str]:
     """Wait barrier ensuring Tulpa MCP HTTP POST JSON-RPC endpoint is fully ready.
     
     Prevents race conditions where an Agent invokes MCP right after TCP socket opens
@@ -116,7 +116,7 @@ def wait_tulpa_mcp_ready(port: int = 48777, token: str = None, timeout_seconds: 
     start_time = time.time()
     last_err = ""
     while time.time() - start_time < timeout_seconds:
-        ok, msg = check_tulpa_mcp_health(port, token=token)
+        ok, msg = check_tulpa_mcp_health(port, host=host, token=token)
         if ok:
             return True, msg
         last_err = msg
