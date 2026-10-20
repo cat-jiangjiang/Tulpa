@@ -552,19 +552,22 @@ def latest_group_id():
     return ""
 
 
-def pending_wakes(after_id=0):
-    """Wake events newer than `after_id` that nobody has answered yet.
+def unanswered(answered):
+    """Every wake still owed a reply, minus the ones this reply already covers.
 
-    Same rules as `up.py --status`, deliberately: this is the burst check, and a
-    second opinion on what "answered" means would defeat the point.
+    The forward-only check was wrong in the exact case it existed for: answer the
+    newest of a burst and the earlier ones stay pending, but because their ids are
+    smaller nothing warns about them -- which is how "two @s, one answer" looked
+    like success. Both directions have to be checked.
     """
     import up
 
     rows = up.events()
     ledger = up.replied_ids()
+    done = set(answered)
     return [e for e in rows
-            if (e.get("id") or 0) > after_id
-            and up.wake_reason(e)
+            if up.wake_reason(e)
+            and (e.get("id") or 0) not in done
             and not up.replied_after(e.get("id"), rows, ledger)]
 
 
@@ -595,7 +598,7 @@ def wait_for_next(seconds):
 
 def main():
     parser = argparse.ArgumentParser(description="回一条群消息并记账")
-    parser.add_argument("target", nargs="?", help="要回复的消息 id；省略则回最新一条待回")
+    parser.add_argument("target", nargs="?", help="要回复的消息 id（必填，偷懒省略会直接报错）")
     parser.add_argument("text", nargs="?", help="回复正文；@ {花名} 会变成真正的 @")
     parser.add_argument("--intent", default="回复群友", help="简短沟通意图")
     parser.add_argument("--no-quote", action="store_true", help="不带引用")
@@ -653,10 +656,13 @@ def main():
     # land while this reply is being written are only visible in the file. Saying
     # so here is what keeps a burst from being answered by its first message
     # alone: by the time anyone looks again, those ids would read as [已回].
-    newer = pending_wakes(target)
-    if newer:
-        ids = "、".join(str(e.get("id")) for e in newer)
-        print(f"  NOTE 后面还有 {len(newer)} 条在等：{ids}")
+    # Both directions matter -- answering the *newest* of a pair leaves the older
+    # one silent with no warning at all, which is the more common shape.
+    missing = unanswered(answered)
+    if missing:
+        ids = "、".join(f"{e.get('id')}" + ("（更早）" if (e.get('id') or 0) < target else "")
+                        for e in missing)
+        print(f"  NOTE 还有 {len(missing)} 条没回：{ids}")
         print("       一条答得完就加 --also，答不完就先回这条再接着回")
 
     # Quote through OneBot first: it is the only path that can point at a message
