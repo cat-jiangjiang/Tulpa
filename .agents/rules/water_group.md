@@ -158,7 +158,47 @@ send_chat_reply(session_id, plan_id,
 
 发完不用写 `wg_ack.txt`，collector 落盘时已经推进了。
 
-## 4. 写回复
+## 4. 闲时沉淀群友画像
+
+没被 @ 的时候群里照样在聊，`chat_inbox` 里一条不落——Tulpa 先把每条消息入库，再决定要不要唤醒。素材一直都在，只是没人整理。
+
+```bash
+# 该提炼了吗（exit 0 = 该，3 = 还不用）
+.venv/Scripts/python.exe water-group/daemon/dossier.py --check
+
+# 取一批素材，最早的优先（分批消化积压，中间不会漏）
+.venv/Scripts/python.exe water-group/daemon/dossier.py --dump 60
+
+# 规则版消化：纯关键词，不调模型，每次超时都可以跑
+.venv/Scripts/python.exe water-group/daemon/dossier.py --digest
+
+# 一批处理完，把游标推到最后一条的 id
+.venv/Scripts/python.exe water-group/daemon/dossier.py --mark --through <id>
+```
+
+**触发条件**（`config.json` 的 `dossier` 段）：攒够 `burst_messages`（默认 80）直接触发；或者闲置超过 `idle_minutes`（默认 20）且攒了 `min_messages`（默认 25）。
+
+**两层**：
+
+- `--digest` 走 `memory_engine.digest_idle_batch`，关键词打标（沙雕梗 / 猛男控 / 游戏党）+ 偏好提取，零成本，每次超时都该跑。
+- `--dump` → 自己提炼 → `consolidate_chat_memory` → `--mark` 是模型版，质量高但贵，只在 `--check` 说 YES 时做。
+
+**`traits` 必须传 dict**：`update_member_dossier` 里是 `dict(traits) if isinstance(traits, dict) else {}`，传数组会被**静默丢成空**（踩过一次）。写成 `{"性格": "..."}`，会和已有的 `{card, nickname}` 合并，不覆盖。
+
+**监听循环**（`watch.py` 超时即「一段时间没被 @」）：
+
+```bash
+while true; do
+  .venv/Scripts/python.exe water-group/daemon/watch.py --timeout 300
+  rc=$?
+  [ $rc -eq 0 ] && { echo "=== WAKE ==="; exit 0; }
+  .venv/Scripts/python.exe water-group/daemon/dossier.py --digest >/dev/null 2>&1
+  .venv/Scripts/python.exe water-group/daemon/dossier.py --check >/dev/null 2>&1 \
+    && { echo "=== DOSSIER_DUE ==="; exit 0; }
+done
+```
+
+## 5. 写回复
 
 - 1~10 字的短句，打字感，不换行；最多两条。
 - 禁客服腔、禁排比升华、禁括号内心戏、禁总结和礼貌收尾。
@@ -167,12 +207,12 @@ send_chat_reply(session_id, plan_id,
   `update_member_dossier` / `consolidate_chat_memory`。
 - 群友常改名，靠 `config.json` 的 `member_mappings` 和名片同步对齐，别硬认昵称。
 
-## 5. 想更主动
+## 6. 想更主动
 
 `config.json` 里目标群的 `trigger_mode` 是 `mention_only`：只在被 @ / 引用 / 点名时唤醒。
 改成 `natural` 会按 `participation` 参与闲聊，噪音也一起上来。改完跑一次 `up.py` 生效。
 
-## 6. 出问题先看这三处
+## 7. 出问题先看这三处
 
 ```bash
 tail -20 water-group/logs/wg-supervisor.log   # 谁被重启了

@@ -207,6 +207,38 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 
 ---
 
+### 第四步：闲时沉淀群友画像（没被 @ 的时候）
+
+群里照样在聊，`chat_inbox` 一条不落——Tulpa 先把每条消息入库，再决定要不要唤醒，所以素材一直都在，只是没人整理。
+
+```bash
+# 该提炼了吗（exit 0 = 该，3 = 还不用）
+.venv/Scripts/python.exe water-group/daemon/dossier.py --check
+# 取一批素材（最早优先，分批消化积压，中间不会漏）
+.venv/Scripts/python.exe water-group/daemon/dossier.py --dump 60
+# 规则版消化，不调模型，每次超时都可以跑
+.venv/Scripts/python.exe water-group/daemon/dossier.py --digest
+# 一批处理完，把游标推到最后一条的 id
+.venv/Scripts/python.exe water-group/daemon/dossier.py --mark --through <id>
+```
+
+- **触发**：攒够 `burst_messages`（默认 80）直接触发；或闲置 `idle_minutes`（默认 20）且攒了 `min_messages`（默认 25）。
+- **两层**：`--digest` 走关键词打标（沙雕梗/猛男控/游戏党），零成本；`--dump` + `consolidate_chat_memory` 是模型版，质量高但贵。
+- **`traits` 必须传 dict**（`{"性格": "..."}`）：引擎里是 `dict(traits) if isinstance(traits, dict) else {}`，传数组会被**静默丢空**，且会与已有的 `{card, nickname}` 合并。
+
+**监听循环**（`watch.py` 超时 = 一段时间没被 @）：
+
+```bash
+while true; do
+  .venv/Scripts/python.exe water-group/daemon/watch.py --timeout 300
+  rc=$?
+  [ $rc -eq 0 ] && { echo "=== WAKE ==="; exit 0; }
+  .venv/Scripts/python.exe water-group/daemon/dossier.py --digest >/dev/null 2>&1
+  .venv/Scripts/python.exe water-group/daemon/dossier.py --check >/dev/null 2>&1 \
+    && { echo "=== DOSSIER_DUE ==="; exit 0; }
+done
+```
+
 ## 四、常用快捷控制与配置
 
 - **群成员号码与身份标注（精准怼人）**：

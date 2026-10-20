@@ -7,6 +7,13 @@
   "default_participation": "natural",
   "default_trigger_mode": "mention_only",
   "default_reply_addressing": "quote",
+  "qq_args": [],
+  "dossier": {
+    "idle_minutes": 20,
+    "min_messages": 25,
+    "burst_messages": 80,
+    "max_material": 60
+  },
   "groups": {
     "123456789": {
       "name": "示例交流群",
