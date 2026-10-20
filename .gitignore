@@ -38,3 +38,6 @@ water-group/status.json
 water-group/logs/
 *yu_bao*
 
+# WorkBuddy workspace memory: real member QQ numbers, never publish
+.workbuddy/
+
