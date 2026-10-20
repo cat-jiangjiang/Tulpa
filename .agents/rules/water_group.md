@@ -28,8 +28,20 @@ watchdog 于是无限重注入——桌面上那堆黑框就是这么攒出来�
 它会按依赖顺序拉起 NapCat → `app.py` → 采集/保活守护，然后进入守护循环**永不退出**。
 这个进程就是整个水群的命脉：
 
-> ⚠️ 关闭它只能用 `up.py --stop`（`stop.ps1` 只管 `app.py`，停不干净）。
+> ⚠️ 关闭它只能用 `up.py --stop`（`stop.ps1` 只管 `app.py`，停不干净；`--stop` 自己也可能留残留，见下）。
 > 不要 `kill`、不要「清理后台任务」、不要重启它。复查状态跑 `up.py --status`（只读）。
+
+### 重启整栈：`--stop` 不等于全停
+
+`up.py --stop` 只退 supervisor / 看护 / 注入实例，**`app.py` 与 `collector.py` 常常原地活着，继续占着 47860 / 48777**。而 `start-bot.pyw` 是按端口判幂等的——端口还在就认定「已在运行」直接退出。结果：QQ 被杀没拉回来，`up.py --status` 却仍显示「后端 在线」，群里彻底哑掉还不能自愈。
+
+重启前先确认端口真的空，再起启动器：
+
+```bash
+netstat -ano | grep LISTENING | grep -E ":47860|:48777"   # 还有输出就是没停干净
+```
+
+有残留就按 PID 精准清（PowerShell 的 `Stop-Process -Id <pid> -Force`；Git Bash 里 `taskkill /F` 的 `/F` 会被当路径转义吃掉），端口空了再从 explorer 起 `start-bot.pyw`。实测 QQ 主进程没死时冷启 **20 秒**就绪，结束后重挂监听。
 
 **为什么必须绕开代理进程**：本机会话结束时连带清理整棵进程树，而代理的沙箱还会给每个子进程
 注入 `tsbx.dll`。实测在代理里直接起的 `DETACHED_PROCESS` 子进程连一行日志都写不出来就被杀；
@@ -317,6 +329,7 @@ tail -20 water-group/logs/napcat-watchdog.log # QQ 是否被反复重注入
 | QQ.exe 越攒越多 | `kill_stale_instances` 匹配失效。**认实例只认 `-q <self_account>`**，别认启动器注入的开关（`--enable-logging` 已被改成 `--disable-gpu`，跟着它走会漏杀） |
 | 注入实例每 20~40 秒崩一次，`0xC06D007F` | **栈是从代理里起的**。沙箱的 `tsbx.dll` 沿进程链继承到 QQ，delay-load 找不到导出就自杀。先看 `napcat-watchdog.log` 有没有 `WARN ... tsbx.dll`；有就是脏栈，`up.py --stop` 之后改用 `start-bot.pyw` 从 explorer 起 |
 | 判断某个 QQ 干不干净 | `Get-Process -Id <pid> -Module` 里**不该**出现 `tsbx.dll`。用户桌面启动的 QQ 本来就没有，所以这个判据只对注入实例有意义 |
+| 重启后 NapCat 离线、`--status` 却仍报「后端 在线」、启动器跑完毫无反应 | `--stop` 没停干净：残留 `app.py`/`collector.py` 占着 47860/48777，启动器按端口判幂等直接退出。按 §0「重启整栈」先清端口 |
 | @ 了但群里没变蓝 | 三种：名字没解析（正文里留成了 `@某某` 文字）、那人不在本群（`--who` 会说）、或者消息走了 `send_chat_reply`（它只吃纯文本）。`get_msg` 回读一眼就分清 |
 
 **注入实例的身份**：`--disable-gpu    -q 3885934113`。用户桌面启动的 QQ 命令行不带任何参数，所以按 `-q <账号>` 匹配永远不会误伤。杀的时候带 `/T`，只杀主进程会把 renderer 和 network utility 留在原地继续占 profile。
