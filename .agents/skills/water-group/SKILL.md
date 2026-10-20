@@ -150,9 +150,13 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 > ```bash
 > .venv/Scripts/python.exe water-group/daemon/reply.py <消息id> "<正文>"
 > ```
-> 它自动取 batch、处理 stale/expired 重试、发送、并写入已回账本 `.tmp/wg_replied.jsonl`；
-> 默认首条带 `"quote": true`。`reply.py --list` 可列出现有待回。
-> 下面 1~3 步是它内部做的事，**只在需要自定义多气泡或排查失败时**才手动执行。
+> 它自动查 `onebot_message_id`、用 OneBot 直发带 QQ 原生引用、并写入已回账本 `.tmp/wg_replied.jsonl`；
+> **每条回复都引用触发的那条消息**（要发纯文本才加 `--no-quote`）。`reply.py --list` 可列出现有待回。
+> 引用不走 `send_chat_reply` 的 `quote`：`plan_chat_reply` 只接受当前批次里的 `target_event_id`，
+> 而群里每来一条新消息就开一个新批次，等正文写好触发消息往往已在旧批次里——plan 要么
+> `target_not_in_batch` 失败，要么改投到最新那条把引用挂到别人头上。OneBot 的 `reply` 消息段
+> 用 collector 已存的 `onebot_message_id`，跨批次依然精确。
+> 下面 1~3 步是**兜底路径**（查不到消息编号或直发失败时才走），**只在需要自定义多气泡或排查失败时**才手动执行。
 
 1. **Planner (规划与多消息处理)**：
    分析当前群聊氛围与被 @ 的诉求，结合人设决定如何回复。
