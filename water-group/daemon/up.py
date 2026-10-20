@@ -160,6 +160,17 @@ def watchdog_pids(exclude=None):
     return _match_pids("daemon[\\\\/]watchdog\\.py", exclude)
 
 
+def listener_pids(exclude=None):
+    """PIDs of the agent's listen.py loop.
+
+    That loop is the only thing that turns "a message arrived" into "wake the
+    agent", and it lives for exactly one wake. An empty answer here is not a
+    harmless idle state: the collector keeps writing events and nobody ever reads
+    them, which looks to the group like the bot stopped hearing them.
+    """
+    return _match_pids("daemon[\\\\/]listen\\.py", exclude)
+
+
 def stop_stack():
     """Take the resident guard and everything under it down.
 
@@ -366,6 +377,9 @@ def report(exclude_pids=None, resident_pid=None):
         beat = f"{age:.0f}s 前（已卡死，supervisor 应会重启）"
     else:
         beat = f"{age:.0f}s 前（wait 周期 170s，正常）"
+    listeners = listener_pids(exclude=exclude_pids)
+    listener = (f"已挂 pid={','.join(listeners)}" if listeners
+                else "未挂 —— 消息照收，但没人会叫醒你")
     rows = events()
     ledger = replied_ids()
     wakes = [e for e in rows if wake_reason(e)][-6:]
@@ -374,6 +388,7 @@ def report(exclude_pids=None, resident_pid=None):
     print(f"NapCat    : {napcat}")
     print(f"后端      : {backend}  (47860 / 48777)")
     print(f"守护      : {guard}  心跳 {beat}")
+    print(f"监听      : {listener}")
     print(f"会话      : {read_text(STATE / 'wg_session.txt') or '（尚未建立）'}")
     print(f"游标      : {read_text(STATE / 'wg_ack.txt') or '0'}   事件 {len(rows)} 条")
     if wakes:
@@ -386,8 +401,9 @@ def report(exclude_pids=None, resident_pid=None):
     else:
         print("最近唤醒  : 无")
     print()
-    print("下一步    : 对上面 id 里还没回过的，用 plan_chat_reply + send_chat_reply 回复；")
-    print("            没有待回的就等 .tmp/wg_events.jsonl 新增，不要自己调 wait_chat_messages。")
+    print("下一步    : 对上面 id 里还没回过的，用 reply.py <id> \"文本\" 回复"
+          "（内部走 plan_chat_reply + send_chat_reply）；")
+    print("            回完立刻重挂 listen.py --timeout 300，它是唯一会叫醒你的东西。")
     return 0
 
 
