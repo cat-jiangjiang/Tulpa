@@ -313,6 +313,22 @@ def resolve_member(name, group_id):
     return None, "没找到"
 
 
+def _tidy(segments):
+    """Fold neighbouring text runs into one segment.
+
+    QQ renders two adjacent text segments exactly like one, so this is only about
+    the payload being readable in `get_msg` output and in the logs -- which is
+    where anyone debugging a missing @ will be looking.
+    """
+    out = []
+    for seg in segments:
+        if seg["type"] == "text" and out and out[-1]["type"] == "text":
+            out[-1]["data"]["text"] += seg["data"]["text"]
+        else:
+            out.append(seg)
+    return out
+
+
 def build_segments(text, group_id, leading=()):
     """Turn `@{花名}` into real at segments, keeping everything else as text.
 
@@ -346,7 +362,7 @@ def build_segments(text, group_id, leading=()):
         pos = hit.end()
     if pos < len(text or ""):
         segments.append({"type": "text", "data": {"text": text[pos:]}})
-    return segments
+    return _tidy(segments)
 
 
 def onebot_send(group_id, segments, message_id=None):

@@ -140,6 +140,12 @@ collector 其实 1 秒内就落盘了，慢的是 Agent 自己隔一阵才看一
 .venv/Scripts/python.exe -c "import sys,json,requests;sys.path.insert(0,'water-group/daemon');import reply as R;b,t=R.onebot_config();print(json.dumps(requests.post(b+'/get_msg',json={'message_id':<上一步的 message_id>},headers={'Authorization':'Bearer '+t},timeout=15).json().get('data',{}).get('message'),ensure_ascii=False))"
 ```
 
+**什么时候该 @**：引用**不会**通知被引用的人，只有 @ 会响。所以
+
+- 回谁就只引用谁，不用再 @ 一遍——引用条已经摆在那儿了，再 @ 显得急。
+- 要**把某人叫出来**（点名要答案、提醒他刚才说的话、转达给第三方）才 @，一条消息最多 @ 两个。
+- 不 @ 全体。真要全员才 `@{all}` 之外的场景不存在，群主权限也没有。
+
 
 <details>
 <summary>它内部做的事（出问题时才需要看）</summary>
