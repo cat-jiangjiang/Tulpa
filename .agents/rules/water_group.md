@@ -9,8 +9,22 @@
 .venv/Scripts/python.exe water-group/daemon/up.py
 ```
 
-按依赖顺序拉起 NapCat → 后端 `app.py` → 守护 `supervisor`，然后打印状态。
-已就绪的会跳过，所以随时可以再跑一次。只看不动加 `--status`。
+**必须放到后台跑，而且它会一直不返回——这是设计如此，不是卡住。**
+
+```bash
+# 正确姿势：后台常驻
+<上面的命令>   # run_in_background = true
+```
+
+它会按依赖顺序拉起 NapCat → `app.py` → 采集/保活守护，打印状态后**原地进入守护循环**，
+永不退出。这个进程就是整个水群的命脉：
+
+> ⚠️ 关掉这个后台任务 = 关掉整个水群。不要 `kill`、不要「清理后台任务」、不要重启它。
+> 需要复查状态时跑 `--status`（只读，不碰任何进程）。
+
+**为什么不能 detach 后返回**：本机会话结束时连带清理整棵进程树。
+实测 `DETACHED_PROCESS` 和 `CREATE_BREAKAWAY_FROM_JOB` 的子进程**连一行日志都写不出来就被杀**，
+`schtasks.exe`、`cmd.exe`、`reg.exe` 都在沙箱黑名单里。唯一可靠的办法就是父进程自己不走。
 
 跑完读输出末尾的「最近唤醒」：
 
@@ -23,9 +37,14 @@
 
 | 进程 | 职责 |
 | --- | --- |
+| `db_keeper.py` | 常驻 SQLite 连接，钉住 WAL 边车文件；缺了会 `资料读取失败` |
+| `app.py` | 后端：Web 47860 / MCP 48777，退出会被守护重拉 |
 | `collector.py` | 常驻 `wait_chat_messages`，消息先落盘再给你 |
 | `watchdog.py` | HTTP 探活保活 QQ，连续 3 次、跨 30 秒才判死 |
-| `supervisor.py` | 重启上面两个；采集器心跳超 300s 也视为卡死 |
+| `supervisor.py` | 重启上面全部；采集器心跳超 300s 也视为卡死 |
+
+冷启动耗时参考：NapCat 注入约 **65 秒**，`app.py` 起端口约 **20 秒**，
+采集器建立会话约 **20 秒**。这段时间看到「离线 / 未建立」是正常的，别急着重跑。
 
 **绝不要自己调 `wait_chat_messages`**。会和 collector 抢同一个会话，返回
 「此会话已有 Agent 在等待」，而且工具超时会把你的循环打断——这正是旧做法失效的原因。

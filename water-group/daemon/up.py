@@ -1,11 +1,19 @@
-"""Bring the whole water-group stack up with one command.
+"""Bring the whole water-group stack up with one command, and keep it up.
 
-An agent that is told to "go water the group" runs this first and then only has
-to write replies. It is idempotent: healthy stages are reported, missing ones are
-started in dependency order — NapCat binds the OneBot ports, the backend reads
-from them, the supervisor keeps both alive and restarts whatever dies.
+An agent told to "go water the group" runs this and then only has to write replies.
 
-Run with `--status` to look without touching anything.
+Why this process stays in the foreground instead of detaching: on Windows a child
+started with DETACHED_PROCESS still dies with the job object of the shell that
+created it, and this host kills the whole tree when a command finishes. Measured
+here: both DETACHED_PROCESS and CREATE_BREAKAWAY_FROM_JOB children were gone before
+they could write a single line. The only thing that reliably keeps the stack alive
+is a parent that never exits, so up.py *becomes* the supervisor: it ensures NapCat,
+starts the children, reports, and then blocks in the watch loop.
+
+Usage:
+  up.py            bring everything up and stay resident (run it in the background)
+  up.py --status   report only, touch nothing
+  up.py --detach   legacy: spawn the supervisor and return (unreliable under a job)
 """
 import argparse
 import json
@@ -18,20 +26,30 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
 STATE = Path(os.environ.get("TULPA_WG_STATE", ROOT / ".tmp"))
 CONFIG = ROOT / "water-group" / "config.json"
 
 NAPCAT_PORTS = (43000, 43001)
 BACKEND_PORTS = (47860, 48777)
 
-# Detach so the stack outlives the agent turn that started it.
+# Detach so the stack outlives the agent turn that started it. Only honoured by
+# --detach; the default path stays resident on purpose.
 DETACHED = 0x00000008 if os.name == "nt" else 0
 
-# The host proxy intercepts loopback calls — both httpx and urllib honour it — and
-# NapCat only answers on 127.0.0.1. Strip it for everything started from here.
-CHILD_ENV = {k: v for k, v in os.environ.items()
-             if k.upper() not in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")}
-CHILD_ENV["NO_PROXY"] = "127.0.0.1,localhost"
+PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
+
+
+def strip_proxy():
+    """The host proxy intercepts loopback and NapCat only answers on 127.0.0.1.
+
+    Mutating os.environ instead of only building a child env means every module
+    imported afterwards — mcp_client, session, bootstrap — inherits a clean one.
+    """
+    for key in list(os.environ):
+        if key.upper() in PROXY_KEYS:
+            os.environ.pop(key, None)
+    os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
 
 def python_exe():
@@ -88,28 +106,49 @@ def login_info():
     return info.get("user_id"), info.get("nickname")
 
 
-def supervisor_pids():
-    """PIDs of a live supervisor. tasklist cannot show command lines, WMI can."""
+def _match_pids(pattern, exclude=None):
+    """PIDs whose command line matches, with launcher shims collapsed.
+
+    The venv python.exe is a redirector: it shows up in WMI with the same command
+    line as the interpreter it spawns, so a naive match reports one guard as two
+    pids. A pid whose parent is also matched is that second layer, so it is dropped.
+    """
     if os.name != "nt":
-        out = subprocess.run(["pgrep", "-f", "daemon/supervisor.py"],
-                             capture_output=True)
-        return [line.strip() for line in out.stdout.decode().splitlines() if line.strip()]
+        out = subprocess.run(["pgrep", "-f", pattern], capture_output=True)
+        found = [line.strip() for line in out.stdout.decode().splitlines() if line.strip()]
+        return [p for p in found if p != str(exclude)] if exclude else found
     script = ("Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
-              "Where-Object { $_.CommandLine -like '*supervisor.py*' } | "
-              "ForEach-Object { $_.ProcessId }")
+              f"Where-Object {{ $_.CommandLine -match '{pattern}' }} | "
+              "ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }")
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
                               "-Command", script], capture_output=True, timeout=30)
-        return [line.strip() for line in out.stdout.decode("utf-8", "ignore").splitlines()
-                if line.strip().isdigit()]
     except Exception:  # noqa: BLE001
         return []
+    pairs = []
+    for line in out.stdout.decode("utf-8", "ignore").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit():
+            pairs.append((parts[0], parts[1]))
+    matched = {pid for pid, _ in pairs}
+    found = [pid for pid, parent in pairs if parent not in matched]
+    return [p for p in found if p != str(exclude)] if exclude else found
+
+
+def supervisor_pids(exclude=None):
+    """PIDs of a live guard loop: either supervisor.py or this script resident."""
+    return _match_pids("supervisor\\.py|daemon[\\\\/]up\\.py", exclude)
+
+
+def watchdog_pids(exclude=None):
+    """PIDs of the NapCat watchdog. It is what re-injects a dead instance."""
+    return _match_pids("daemon[\\\\/]watchdog\\.py", exclude)
 
 
 def spawn(args, log_name):
     STATE.mkdir(parents=True, exist_ok=True)
     log = open(STATE / log_name, "ab")
-    return subprocess.Popen(args, cwd=str(ROOT), env=CHILD_ENV,
+    return subprocess.Popen(args, cwd=str(ROOT), env=dict(os.environ),
                             stdout=log, stderr=subprocess.STDOUT,
                             creationflags=DETACHED)
 
@@ -134,17 +173,21 @@ def ensure_napcat():
             time.sleep(5)
         return False, "端口在但 OneBot 无响应（正在重连，等 30 秒再跑一次）"
 
-    # The watchdog owns the NapCat lifecycle whenever it runs. Two launchers racing
-    # to inject the same account leaves several instances sharing one user-data-dir,
-    # and their GPU processes then fight until QQ dies. Wait for the watchdog to
-    # finish instead of starting a second injection.
-    if supervisor_pids():
+    # The watchdog owns the NapCat lifecycle whenever a guard loop runs. Two
+    # launchers racing to inject the same account leaves several instances sharing
+    # one user-data-dir, and their GPU processes then fight until QQ dies. Wait for
+    # the watchdog instead of starting a second injection.
+    #
+    # The check is for watchdog.py specifically, not for the guard: at cold start
+    # this process *is* the guard, so asking "is a guard running" always answers yes.
+    # Injection itself measures ~65 s, so the window has to clear that comfortably.
+    if watchdog_pids(exclude=os.getpid()):
         print("[1/3] NapCat 离线，守护进程会重新注入，等待…", flush=True)
-        for _ in range(12):
+        for _ in range(24):
             time.sleep(5)
             if all(port_open(p) for p in NAPCAT_PORTS) and login_info():
                 return True, "守护已恢复"
-        return False, "守护 60 秒内没恢复 NapCat（看 water-group/logs/napcat-watchdog.log）"
+        return False, "守护 120 秒内没恢复 NapCat（看 water-group/logs/napcat-watchdog.log）"
 
     print("[1/3] NapCat 未启动且守护未运行，直接注入…", flush=True)
     if str(ROOT) not in sys.path:
@@ -157,25 +200,12 @@ def ensure_napcat():
     return ok, note
 
 
-def ensure_backend():
-    if all(port_open(p) for p in BACKEND_PORTS):
-        return True, "已在线"
-    print("[2/3] 后端未就绪，启动 app.py…", flush=True)
-    spawn([python_exe(), "app.py"], "app.log")
-    ok = wait_ports(BACKEND_PORTS, 120)
-    return ok, "启动成功" if ok else "端口未开放（见 .tmp/app.log）"
-
-
-def ensure_supervisor():
-    pids = supervisor_pids()
-    if pids:
-        return True, f"运行中 pid={','.join(pids)}"
-    print("[3/3] 守护未运行，启动 supervisor…", flush=True)
-    spawn([python_exe(), str(ROOT / "water-group" / "daemon" / "supervisor.py")],
-          "supervisor.log")
-    time.sleep(8)
-    pids = supervisor_pids()
-    return bool(pids), (f"pid={','.join(pids)}" if pids else "启动失败（见 .tmp/supervisor.log）")
+def load_supervisor():
+    """Import the sibling module whether or not this file was run as a script."""
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import supervisor
+    return supervisor
 
 
 def events():
@@ -249,7 +279,7 @@ def replied_after(event_id, rows):
     return False
 
 
-def report():
+def report(exclude_pid=None):
     account, nickname = (None, None)
     info = login_info()
     if info:
@@ -259,7 +289,7 @@ def report():
     if all(port_open(p) for p in NAPCAT_PORTS):
         napcat = f"在线 ({account} {nickname})" if info else "端口在，OneBot 暂未响应"
     backend = "在线" if all(port_open(p) for p in BACKEND_PORTS) else "离线"
-    pids = supervisor_pids()
+    pids = supervisor_pids(exclude=exclude_pid)
     guard = f"运行中 pid={','.join(pids)}" if pids else "未运行"
     age = heartbeat_age()
     if age is None:
@@ -293,23 +323,47 @@ def report():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="一键接管水群：拉起 NapCat、后端与守护")
+    parser = argparse.ArgumentParser(description="一键接管水群：拉起 NapCat、后端与守护并常驻")
     parser.add_argument("--status", action="store_true", help="只报告状态，不启动任何东西")
+    parser.add_argument("--detach", action="store_true",
+                        help="旧行为：后台拉起 supervisor 后立即返回（沙箱内不可靠）")
     args = parser.parse_args()
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    strip_proxy()
 
     if args.status:
-        return report()
+        return report(exclude_pid=os.getpid())
+
+    if args.detach:
+        ok_napcat, note_napcat = ensure_napcat()
+        if not all(port_open(p) for p in BACKEND_PORTS):
+            spawn([python_exe(), str(HERE / "supervisor.py")], "supervisor.log")
+        ok = wait_ports(BACKEND_PORTS, 120)
+        report()
+        print(f"[结果] NapCat: {note_napcat} | 后端: {'启动成功' if ok else '未就绪'} | "
+              f"守护: 已脱离（随启动它的进程一起死）")
+        return 0 if (ok_napcat and ok) else 1
 
     ok_napcat, note_napcat = ensure_napcat()
-    ok_backend, note_backend = ensure_backend()
-    ok_guard, note_guard = ensure_supervisor()
+
+    supervisor = load_supervisor()
+    procs = supervisor.start_all()
+    print("[2/3] 后端启动中…", flush=True)
+    ok_backend = wait_ports(BACKEND_PORTS, 180)
+    print("[3/3] 守护循环接管中…", flush=True)
 
     report()
-    print(f"[结果] NapCat: {note_napcat} | 后端: {note_backend} | 守护: {note_guard}")
-    return 0 if (ok_napcat and ok_backend and ok_guard) else 1
+    print(f"[结果] NapCat: {note_napcat} | 后端: {'启动成功' if ok_backend else '未就绪'} | "
+          f"守护: 本进程 pid={os.getpid()} 常驻")
+    print("[常驻] 不要关闭这个任务；关掉它等于关掉整个水群。", flush=True)
+
+    try:
+        supervisor.supervise(procs)
+    except KeyboardInterrupt:
+        return 0
+    return 0
 
 
 if __name__ == "__main__":
