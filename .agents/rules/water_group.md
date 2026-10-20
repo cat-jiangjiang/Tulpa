@@ -222,3 +222,7 @@ tail -20 water-group/logs/napcat-watchdog.log # QQ 是否被反复重注入
 | 反复 `资料读取失败` | WAL 竞态，跑 `.venv/Scripts/python.exe .tmp/db_keeper.py` 常驻一个连接 |
 | 大量 `Threads=0` 的 QQ 进程 | 崩溃后进程对象没回收，只能重启系统；别再反复重启，watchdog 已熔断 |
 | `source_unavailable` 持续 | NapCat 掉线，`up.py` 会重新注入 |
+| 桌面时不时弹黑框 | 多半是 `QQ has stopped working` 崩溃框，一个实例崩一次攒一个。`SetErrorMode` 已压掉；如果还在弹，说明有别的东西在开控制台，查是谁没带 `CREATE_NO_WINDOW` |
+| QQ.exe 越攒越多 | `kill_stale_instances` 匹配失效。**认实例只认 `-q <self_account>`**，别认启动器注入的开关（`--enable-logging` 已被改成 `--disable-gpu`，跟着它走会漏杀） |
+
+**注入实例的身份**：`--disable-gpu    -q 3885934113`。用户桌面启动的 QQ 命令行不带任何参数，所以按 `-q <账号>` 匹配永远不会误伤。杀的时候带 `/T`，只杀主进程会把 renderer 和 network utility 留在原地继续占 profile。
