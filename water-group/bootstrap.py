@@ -473,7 +473,26 @@ def main():
     parser = argparse.ArgumentParser(description="Water-Group 一键环境就绪与后台启动器")
     parser.add_argument("--group", "-g", help="指定目标 QQ 群号")
     parser.add_argument("--status-only", action="store_true", help="仅检查服务状态，不自动拉起")
+    parser.add_argument("--allow-injected", action="store_true",
+                        help="明知本进程带沙箱注入仍然起栈（会把 QQ 拖进崩溃循环，仅调试用）")
     args = parser.parse_args()
+
+    # 从这里起的栈会把 tsbx.dll 一路继承到 QQ，二十秒后必崩。宁可现在就拒，
+    # 也不要给群里留一个每 20 秒崩一次、还不断重注入的实例——那条路今天已经
+    # 把桌面堆满过崩溃框。AGENTS.md §0 有正确入口。
+    # --status-only 只探端口和健康检查，不拉起任何进程，放行。
+    injected = sandbox_dll()
+    if injected and not (args.allow_injected or args.status_only):
+        print(f"[ABORT] 本进程带着 {injected}（代理沙箱注入）。")
+        print("        从这里起的栈会把注入继承给 QQ：约 20 秒后崩 0xC06D007F，")
+        print("        watchdog 会无限重注入，桌面上每个实例留一个崩溃框。")
+        print("        改用 explorer 代启动：")
+        print('          .venv/Scripts/python.exe -c "import subprocess,pathlib; '
+              "subprocess.Popen(['explorer.exe', "
+              "str(pathlib.Path('water-group/start-bot.pyw').resolve())])\"")
+        print("        只查状态不受影响：bootstrap.py --status-only")
+        print("        确需在当前进程里继续，加 --allow-injected。")
+        return 2
 
     print("========================================================================")
     print("           [WATER-GROUP] 一键后台服务自检与自动启动")
@@ -499,6 +518,11 @@ def main():
     if not (napcat_ok and tulpa_ok):
         print("\n[ERROR] 核心后台服务未完全就绪，请检查上述报错。")
         sys.exit(1)
+
+    if args.status_only:
+        # 真的只查状态：下面的群列表同步、人设卡装载和「MCP 极速启动指南」都属于
+        # 接管流程，跑在这里既多余又会把 Agent 引向已经不用的 wait_chat_messages。
+        return 0
 
     print("\n4. 正在同步群列表与角色卡...")
     sync_res = run_sync()
@@ -620,4 +644,4 @@ def main():
     print("========================================================================")
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

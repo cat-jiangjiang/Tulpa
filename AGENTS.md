@@ -4,6 +4,27 @@
 
 面向使用者的教程在 `doc/`（`CONTRIBUTING.md`、`VALIDATION.md`、`SECURITY.md`、`AGENT_SETUP.md` 等）；水群子系统的 Agent 侧规则另有 `.agents/rules/water_group.md` 与 `.agent/skills/water-group/`。本文件面向**仓库内的开发与维护工作**。
 
+## 0. 接管水群（用户说「在 xxx 群挂机水群」时先看这里）
+
+一句话入口，**必须由 explorer 代启动**（前提：`.venv/` 已存在，没有就先跑 `setup.ps1` 或 `uv sync`）：
+
+```bash
+.venv/Scripts/python.exe -c "import subprocess,pathlib; subprocess.Popen(['explorer.exe', str(pathlib.Path('water-group/start-bot.pyw').resolve())])"
+```
+
+**不要用 `uv run python water-group/bootstrap.py` 起栈。** 代理沙箱给每个子进程注入 `tsbx.dll`，注入沿 `up.py → supervisor → watchdog → NapCatWinBootMain → QQ` 一路继承，QQ 约 20 秒后必崩（`0xC06D007F`，delay-load 的 `ERROR_PROC_NOT_FOUND`），watchdog 于是无限重注入，桌面上堆满崩溃框。`start-bot.pyw` 是 `.pyw`（关联 `pythonw.exe`，无控制台），经 explorer 拉起时父进程是 explorer，整条链干净。`bootstrap.py` 现在检测到注入会直接 `exit 2` 拒绝启动。
+
+起好之后（先读状态，再挂监听）：
+
+```bash
+.venv/Scripts/python.exe water-group/daemon/up.py --status            # 只读复查
+.venv/Scripts/python.exe water-group/daemon/listen.py --timeout 300   # 挂监听（只活一轮，WAKE 后必须重挂）
+.venv/Scripts/python.exe water-group/daemon/reply.py --list            # 看谁 @ 了我
+.venv/Scripts/python.exe water-group/daemon/reply.py <id> "<正文>"      # 回一条，自动带原生引用
+```
+
+日常循环、按花名 @ 人、连发 @ 的处理、排查表，全部在 **`.agents/rules/water_group.md`**，动手前读它。本文件后面的内容是仓库开发与维护规范，不是挂机 SOP。
+
 ---
 
 ## 1. 项目定位与核心架构
@@ -207,12 +228,19 @@ uv run python scripts/check_mcp.py
 ## 6. 快速启动指南
 
 ### 6.1 启动水群后台服务
-由 Agent 或用户唤醒水群时，推荐直接使用一键自检启动脚本：
-```bash
-# 完整自检并启动后台守护 (带端口就绪握手屏障)
-uv run python water-group/bootstrap.py
 
-# 仅检查网络、OneBot连接与成员标注状态 (不保持运行)
+**唯一入口是 `water-group/start-bot.pyw`，必须由 explorer 代启动**（原因见 §0：沙箱注入会杀死 QQ）：
+
+```bash
+.venv/Scripts/python.exe -c "import subprocess,pathlib; subprocess.Popen(['explorer.exe', str(pathlib.Path('water-group/start-bot.pyw').resolve())])"
+```
+
+它幂等：端口已在就什么都不做；否则先 `up.py --stop` 退掉旧栈再起新的。会一直不返回，输出在 `water-group/logs/launcher.log`。
+
+`water-group/bootstrap.py` 降级为**只读自检**。在代理沙箱里跑它会被直接拒绝（exit 2），因为从那里起的栈会把 `tsbx.dll` 一路继承到 QQ：
+
+```bash
+# 仅检查网络、OneBot 连接与成员标注状态（不保持运行、不拉起任何进程）
 uv run python water-group/bootstrap.py --status-only
 ```
 
