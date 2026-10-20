@@ -47,7 +47,7 @@ def get_python_exe():
         return str(venv_py)
     return sys.executable
 
-def start_process_detached(cmd, cwd=None, log_name=None):
+def start_process_detached(cmd, cwd=None, log_name=None, env=None):
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
@@ -61,27 +61,111 @@ def start_process_detached(cmd, cwd=None, log_name=None):
     return subprocess.Popen(
         cmd,
         cwd=cwd or str(ROOT_DIR),
+        env=env,
         stdout=out_file,
         stderr=err_file,
         stdin=subprocess.DEVNULL,
         creationflags=creationflags
     )
 
+QQ_INSTALL_CANDIDATES = (
+    Path(r"C:\Program Files\Tencent\QQNT\QQ.exe"),
+    Path(r"C:\Program Files (x86)\Tencent\QQNT\QQ.exe"),
+)
+
+
+def configured_account():
+    """Bot account from config.json, used for NapCat quick login."""
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            account = str(json.load(f).get("self_account", "")).strip()
+    except (OSError, ValueError):
+        return ""
+    return account if account.isdigit() else ""
+
+
+def registry_qq_exe():
+    """QQ.exe from the uninstall entry; empty when the registry is unavailable."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    key_path = r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\QQ"
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+            raw, _ = winreg.QueryValueEx(key, "UninstallString")
+    except OSError:
+        return None
+    candidate = Path(str(raw).strip().strip('"')).with_name("QQ.exe")
+    return candidate if candidate.exists() else None
+
+
+def resolve_qq_exe():
+    """Locate QQ.exe without requiring the registry (it can be policy-blocked)."""
+    found = registry_qq_exe()
+    if found:
+        return found
+    for candidate in QQ_INSTALL_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def wait_napcat_ports(seconds=12):
+    for _ in range(seconds):
+        time.sleep(1)
+        if is_port_open(43000) and is_port_open(43001):
+            return True
+    return False
+
+
+def launch_napcat_direct(qq_exe, account=""):
+    """Inject NapCat without the .bat launcher, which hard-depends on reg query."""
+    env = os.environ.copy()
+    env.update(
+        NAPCAT_PATCH_PACKAGE=str(NAPCAT_DIR / "qqnt.json"),
+        NAPCAT_LOAD_PATH=str(NAPCAT_DIR / "loadNapCat.js"),
+        NAPCAT_INJECT_PATH=str(NAPCAT_DIR / "NapCatWinBootHook.dll"),
+        NAPCAT_LAUNCHER_PATH=str(NAPCAT_DIR / "NapCatWinBootMain.exe"),
+        NAPCAT_MAIN_PATH=str(NAPCAT_DIR / "napcat.mjs"),
+    )
+    cmd = [str(NAPCAT_DIR / "NapCatWinBootMain.exe"), str(qq_exe), str(NAPCAT_DIR / "NapCatWinBootHook.dll")]
+    if account:
+        cmd.append(account)
+    start_process_detached(cmd, cwd=str(NAPCAT_DIR), log_name="napcat.log", env=env)
+
+
 def ensure_napcat():
     if is_port_open(43000) and is_port_open(43001):
         return True, "在线"
-    
+
+    account = configured_account()
     bat_path = NAPCAT_DIR / "launcher-user.bat"
-    if not bat_path.exists():
-        return False, f"未找到启动脚本: {bat_path}"
-    
-    print("[启动] 正在后台启动 NapCat (OneBot v11)...")
-    start_process_detached(["cmd.exe", "/c", "launcher-user.bat"], cwd=str(NAPCAT_DIR), log_name="napcat.log")
-    
-    for _ in range(12):
-        time.sleep(1)
-        if is_port_open(43000) and is_port_open(43001):
+    if bat_path.exists():
+        print("[启动] 正在后台启动 NapCat (OneBot v11)...")
+        cmd = ["cmd.exe", "/c", "launcher-user.bat"]
+        if account:
+            cmd.append(account)
+        launcher = start_process_detached(cmd, cwd=str(NAPCAT_DIR), log_name="napcat.log")
+        if wait_napcat_ports():
             return True, "启动成功并已连接"
+        # A still-running launcher is booting QQ, not failing: never inject a
+        # second instance behind its back, just give the boot a longer window.
+        if launcher.poll() is None:
+            if wait_napcat_ports(18):
+                return True, "启动成功并已连接"
+            return False, "启动超时，请检查 NapCat 日志或是否需要扫码 (WebUI: http://127.0.0.1:46099)"
+
+    # The .bat resolves QQ.exe through `reg query`, which fails when the
+    # registry is unavailable (sandbox policy, stripped install). Fall back to
+    # the documented install paths and inject directly.
+    qq_exe = resolve_qq_exe()
+    if not qq_exe:
+        return False, "未找到 QQ.exe（注册表不可用且常见安装路径不存在），无法启动 NapCat"
+    print(f"[启动] 改用直接注入方式启动 NapCat (QQ: {qq_exe})...")
+    launch_napcat_direct(qq_exe, account)
+    if wait_napcat_ports():
+        return True, "启动成功（直接注入）"
     return False, "启动超时，请检查 NapCat 日志或是否需要扫码 (WebUI: http://127.0.0.1:46099)"
 
 def check_tulpa_mcp_health(port: int = 48777, host: str = "127.0.0.1", token: str = None, timeout: float = 1.5) -> tuple[bool, str]:
