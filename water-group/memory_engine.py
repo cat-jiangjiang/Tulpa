@@ -20,10 +20,16 @@ import time
 from pathlib import Path
 
 from .memory_commands import known_names, parse_command
-from .memory_format import normalize_list, render_l1_card
+from .memory_format import merge_text_list, normalize_list, render_l1_card
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "group_memories.sqlite3"
+
+# Dossiers are appended to on every consolidation pass, so both lists need a
+# ceiling or they turn into a wall of restatements. Memories are the tighter
+# budget: they land verbatim in the profile card that ships with each turn.
+MEMORY_SLOTS = 10
+INTEREST_SLOTS = 16
 
 
 class MemoryEngine:
@@ -956,9 +962,9 @@ class MemoryEngine:
                     new_tone = tone_style.strip() if (tone_style is not None and str(tone_style).strip()) else (prof["tone_style"] if tone_style is None else "")
                 else:
                     new_aliases = list(dict.fromkeys(cur_aliases + (norm_aliases or [])))
-                    new_interests = list(dict.fromkeys(cur_interests + (norm_interests or [])))
+                    new_interests = merge_text_list(cur_interests, norm_interests, limit=INTEREST_SLOTS)
                     new_traits = {**cur_traits, **(norm_traits or {})}
-                    new_memories = list(dict.fromkeys(cur_memories + (norm_memories or [])))[:10]
+                    new_memories = merge_text_list(cur_memories, norm_memories, limit=MEMORY_SLOTS)
                     new_tone = tone_style.strip() if (tone_style and str(tone_style).strip()) else prof["tone_style"]
 
                 if role:
@@ -988,11 +994,11 @@ class MemoryEngine:
                 uid = ident_str
                 p_name = primary_name.strip() if (primary_name and primary_name.strip()) else ident_str
                 new_aliases = list(dict.fromkeys([p_name, ident_str] + (norm_aliases or [])))
-                new_interests = list(dict.fromkeys(norm_interests or []))
+                new_interests = merge_text_list([], norm_interests, limit=INTEREST_SLOTS)
                 new_traits = dict(norm_traits or {})
                 if role:
                     new_traits["role"] = str(role).strip()
-                new_memories = (norm_memories or [])[:10]
+                new_memories = merge_text_list([], norm_memories, limit=MEMORY_SLOTS)
                 new_tone = tone_style.strip() if (tone_style and str(tone_style).strip()) else "普通群友"
 
                 conn.execute(

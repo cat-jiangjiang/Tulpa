@@ -33,6 +33,49 @@ def normalize_list(val):
     return res
 
 
+def merge_text_list(current, incoming, limit=None):
+    """Merge two fact lists, collapsing restatements of the same fact.
+
+    Exact-match dedup is not enough for a dossier that gets appended to on every
+    consolidation pass. The same trait comes back reworded -- "听八卦" this week,
+    "听八卦（单发一个👂就算表态）" the next -- and both survive, so the ten-slot
+    memory cap fills up with restatements and genuinely new material gets
+    squeezed out. A shorter entry already contained in a longer one adds no
+    information, so the longer wording wins.
+
+    Substring comparison only kicks in at three characters: below that it starts
+    matching unrelated fragments ("+1", "120") and eats real facts.
+
+    When ``limit`` is exceeded the newest entries are the ones kept. An old fact
+    has usually been restated since; a fresh one has not.
+    """
+    merged = []
+    for raw in list(current or []) + list(incoming or []):
+        item = str(raw).strip()
+        if not item:
+            continue
+        if any(item == kept or (len(item) >= 3 and item in kept) for kept in merged):
+            continue
+        # Absorb every earlier entry this one already covers, not just the first:
+        # otherwise a single longer wording leaves the shorter restatements behind.
+        seat = None
+        kept_next = []
+        for kept in merged:
+            if len(kept) >= 3 and kept in item:
+                if seat is None:
+                    seat = len(kept_next)
+                continue
+            kept_next.append(kept)
+        if seat is None:
+            kept_next.append(item)
+        else:
+            kept_next.insert(seat, item)
+        merged = kept_next
+    if limit and len(merged) > limit:
+        merged = merged[-limit:]
+    return merged
+
+
 def render_l1_card(profile, group_event_note=""):
     """Render one ~80 token Tier 1 profile card.
 
