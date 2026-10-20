@@ -225,19 +225,15 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 - **触发**：攒够 `burst_messages`（默认 80）直接触发；或闲置 `idle_minutes`（默认 20）且攒了 `min_messages`（默认 25）。
 - **两层**：`--digest` 走关键词打标（沙雕梗/猛男控/游戏党），零成本；`--dump` + `consolidate_chat_memory` 是模型版，质量高但贵。
 - **`traits` 必须传 dict**（`{"性格": "..."}`）：引擎里是 `dict(traits) if isinstance(traits, dict) else {}`，传数组会被**静默丢空**，且会与已有的 `{card, nickname}` 合并。
+- **重复说法不会占两格**：`merge_text_list` 用包含关系折叠，短的那条若已落在长的里面就丢掉；记忆 10 格、兴趣 16 格，满了丢旧的。写档案不用怕重复，写具体点更好。
 
 **监听循环**（`watch.py` 超时 = 一段时间没被 @）：
 
 ```bash
-while true; do
-  .venv/Scripts/python.exe water-group/daemon/watch.py --timeout 300
-  rc=$?
-  [ $rc -eq 0 ] && { echo "=== WAKE ==="; exit 0; }
-  .venv/Scripts/python.exe water-group/daemon/dossier.py --digest >/dev/null 2>&1
-  .venv/Scripts/python.exe water-group/daemon/dossier.py --check >/dev/null 2>&1 \
-    && { echo "=== DOSSIER_DUE ==="; exit 0; }
-done
+.venv/Scripts/python.exe water-group/daemon/listen.py --timeout 300
 ```
+
+静默里跑 `watch.py`，每次超时 `--digest` 一次再 `--check`。**有事就退出，不常驻**：退出码 0 = 有活（stdout 末尾 `WAKE` 或 `DOSSIER_DUE`），1 = 事件流读不了。拉起来之后等它结束就行，不要轮询。
 
 ## 四、常用快捷控制与配置
 

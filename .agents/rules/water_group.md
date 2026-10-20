@@ -185,18 +185,15 @@ send_chat_reply(session_id, plan_id,
 
 **`traits` 必须传 dict**：`update_member_dossier` 里是 `dict(traits) if isinstance(traits, dict) else {}`，传数组会被**静默丢成空**（踩过一次）。写成 `{"性格": "..."}`，会和已有的 `{card, nickname}` 合并，不覆盖。
 
+**同一件事换个说法不会占两格**：`memory_format.merge_text_list` 在合并时用包含关系折叠——短的那条如果已经完整落在长的那条里就丢掉，留信息量大的那条（三字以下不比，否则会误伤「+1」「120」）。记忆上限 10 格、兴趣 16 格，**满了丢旧的**，因为老事实通常后来又被复述过。所以写档案时不用怕重复，写得具体点反而更好。
+
 **监听循环**（`watch.py` 超时即「一段时间没被 @」）：
 
 ```bash
-while true; do
-  .venv/Scripts/python.exe water-group/daemon/watch.py --timeout 300
-  rc=$?
-  [ $rc -eq 0 ] && { echo "=== WAKE ==="; exit 0; }
-  .venv/Scripts/python.exe water-group/daemon/dossier.py --digest >/dev/null 2>&1
-  .venv/Scripts/python.exe water-group/daemon/dossier.py --check >/dev/null 2>&1 \
-    && { echo "=== DOSSIER_DUE ==="; exit 0; }
-done
+.venv/Scripts/python.exe water-group/daemon/listen.py --timeout 300
 ```
+
+`listen.py` 在静默里跑 `watch.py`，每次超时就 `--digest` 一次再看 `--check`。**它有事就退出**，不常驻：退出码 0 表示「有活」（stdout 末尾是 `WAKE` 或 `DOSSIER_DUE`），1 表示事件流读不了。所以拉起来之后只管等它结束，不要轮询。
 
 ## 5. 写回复
 
