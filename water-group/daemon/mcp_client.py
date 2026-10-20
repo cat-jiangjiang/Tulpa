@@ -9,6 +9,7 @@ The token is never stored in source. Resolution order:
 """
 import json
 import os
+import threading
 from pathlib import Path
 
 import httpx
@@ -16,6 +17,19 @@ import httpx
 URL = os.environ.get("TULPA_MCP_URL", "http://127.0.0.1:48777/mcp")
 STATE_DIR = Path(os.environ.get("TULPA_WG_STATE", Path(__file__).resolve().parents[2] / ".tmp"))
 TOKEN_FILE = STATE_DIR / "mcp_token.txt"
+
+# The server de-duplicates concurrent calls by (grant, JSON-RPC id), so a shared
+# constant id makes any second call look like a duplicate of an in-flight long
+# poll and come back as "MCP request denied". Every call needs its own id.
+_next_id = 1000
+_id_lock = threading.Lock()
+
+
+def next_id():
+    global _next_id
+    with _id_lock:
+        _next_id += 1
+        return _next_id
 
 
 def current_token():
@@ -56,7 +70,7 @@ def parse(resp):
 
 def _call_once(name, arguments, timeout):
     with httpx.Client(timeout=httpx.Timeout(timeout, connect=5), trust_env=False) as client:
-        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        init = {"jsonrpc": "2.0", "id": next_id(), "method": "initialize",
                 "params": {"protocolVersion": "2024-11-05", "capabilities": {},
                            "clientInfo": {"name": "tulpa-water-group", "version": "1.0"}}}
         r = client.post(URL, headers=headers(), json=init)
@@ -67,11 +81,14 @@ def _call_once(name, arguments, timeout):
         if sid:
             hdrs["Mcp-Session-Id"] = sid
             client.post(URL, headers=hdrs, json={"jsonrpc": "2.0", "method": "notifications/initialized"})
-        call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        call = {"jsonrpc": "2.0", "id": next_id(), "method": "tools/call",
                 "params": {"name": name, "arguments": arguments}}
         r = client.post(URL, headers=hdrs, json=call)
         data = parse(r)
         if "error" in data:
+            # 401 means the grant is gone; 409 means a call with this id is already
+            # in flight. Only the first is worth re-minting for.
+            data.setdefault("status", r.status_code)
             return data
         result = data.get("result", {})
         content = result.get("content") or []
@@ -91,7 +108,7 @@ def call_tool(name, arguments, timeout=60.0):
     has to survive unattended, recovering here beats waiting for a human.
     """
     data = _call_once(name, arguments, timeout)
-    if "denied" in str(data.get("error", "")).lower():
+    if data.get("status") == 401:
         try:
             import mint_grant
             mint_grant.mint()

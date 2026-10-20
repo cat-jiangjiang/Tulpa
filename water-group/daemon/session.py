@@ -29,9 +29,15 @@ def current():
 
 
 def alive(sid):
+    """A stopped session still answers get_chat_session, so check the state too."""
     data = mcp_client.call_tool("get_chat_session",
                                 {"session_id": sid, "response_format": "compact"}, 30)
-    return not data.get("error")
+    if data.get("error"):
+        return False
+    state = data.get("session") or {}
+    if state.get("active") is False or state.get("state") == "stopped":
+        return False
+    return True
 
 
 def clear_group_sessions():
@@ -84,12 +90,13 @@ def ensure():
 
     listed = mcp_client.call_tool("list_chat_sessions", {}, 30)
     for item in listed.get("sessions") or []:
-        if item.get("conversation_id") == GROUP:
-            sid = item.get("id") or item.get("session_id")
-            if sid:
-                SID_FILE.write_text(sid, encoding="utf-8")
-                print(f"resumed {sid}")
-                return sid
+        if item.get("conversation_id") != GROUP:
+            continue
+        sid = item.get("id") or item.get("session_id")
+        if sid and alive(sid):
+            SID_FILE.write_text(sid, encoding="utf-8")
+            print(f"resumed {sid}")
+            return sid
 
     sid = start()
     if sid:

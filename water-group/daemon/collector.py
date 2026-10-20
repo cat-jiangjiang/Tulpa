@@ -134,6 +134,21 @@ def main():
                 continue
 
             STATE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            if data.get("event") == "stopped":
+                # Someone stopped the session from the app; a wait on it returns
+                # instantly forever, so rebuild instead of spinning.
+                log("session reported stopped, rebuilding")
+                try:
+                    fresh = session.ensure()
+                except Exception as exc:  # noqa: BLE001
+                    log(f"session rebuild failed: {type(exc).__name__}: {exc}")
+                    fresh = ""
+                if fresh and fresh != sid:
+                    sid = fresh
+                    log(f"session switched to {sid}")
+                beat()
+                time.sleep(5)
+                continue
             msgs = data.get("messages") or []
             fresh = [m for m in msgs if m.get("id") not in seen]
             if fresh:
