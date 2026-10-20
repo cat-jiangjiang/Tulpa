@@ -507,7 +507,11 @@ def main():
     args = parser.parse_args()
 
     if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+        # Line buffered even when piped: --wait parks in a child process, and if
+        # the caller's timeout kills the group mid-wait, block buffering throws
+        # away the SENT line along with it -- leaving no way to tell whether the
+        # message went out.
+        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
     if args.list:
         return list_wakes()

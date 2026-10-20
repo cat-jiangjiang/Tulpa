@@ -125,6 +125,8 @@ collector 其实 1 秒内就落盘了，慢的是 Agent 自己隔一阵才看一
 
 `--wait` 让 `reply.py` 发完直接进等待（`listen.py --timeout N --cycles 1 --no-digest`），空窗从「一整轮 agent 思考」压到几百毫秒。末行是 `WAKE`（有人叫你）或 `NO_WORK`（这 N 秒没人说话），都算正常返回。已有监听在跑时它会跳过，不会挂两个。
 
+> ⚠️ **`--wait` 要放后台跑**（`run_in_background`）。前台工具调用有超时上限（本机 120 秒），`--wait 180` 会被砍掉——消息其实已经发出去了，只是等待被打断，日志里只留一个 SIGTERM。stdout 已改成行缓冲，被杀时至少能看到 `SENT`。
+
 **② 一条回复能答完，就用 `--also` 一起记账**
 
 ```bash
