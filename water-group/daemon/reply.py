@@ -17,6 +17,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -182,6 +183,11 @@ def onebot_config():
     return str(data.get("onebot_http_url") or "").rstrip("/"), str(data.get("onebot_token") or "")
 
 
+# 只有写在花括号里的名字才算 @：群里正文的「@时月」是普通文字，真正的 @ 是消息段，
+# 混为一谈会把随口一提变成一次点名。
+AT_TOKEN = re.compile(r"@\{([^{}\n]{1,24})\}")
+
+
 def event_target(event_id):
     """(group_id, onebot_message_id) for an event the collector already stored."""
     for row in read_events():
@@ -194,34 +200,178 @@ def event_target(event_id):
     return None
 
 
-def quote_send(group_id, message_id, text):
-    """Send with a native QQ quote straight through OneBot.
+_ROSTER = {}
 
-    The plan path cannot quote across batches. plan_chat_reply only accepts a
-    target listed in the current batch, and every new group message opens a new
-    batch -- so by the time a reply is composed, the message that woke us up
-    usually belongs to a batch that is already gone. Quoting through the plan
-    then either fails outright or, worse, points at whoever spoke last.
 
-    OneBot takes a raw reply segment, which is exactly what the plan path
-    compiles down to anyway, so this lands the quote on the right message no
-    matter how many batches have rolled over in between.
+def group_members(group_id):
+    """Live member list for one group: [{"qq", "card", "nickname"}].
+
+    Memoised per process: one reply can carry several @-mentions, and the roster
+    is a fat JSON list that costs a round trip each time.
+    """
+    if group_id in _ROSTER:
+        return _ROSTER[group_id]
+    base, token = onebot_config()
+    if not base or not group_id:
+        return []
+    try:
+        resp = requests.post(f"{base}/get_group_member_list",
+                             json={"group_id": int(group_id)},
+                             headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        rows = resp.json().get("data") or []
+    except (requests.RequestException, ValueError) as exc:
+        print(f"  member list unavailable: {type(exc).__name__}: {exc}")
+        return []
+    _ROSTER[group_id] = [{"qq": str(r.get("user_id") or ""),
+                          "card": (r.get("card") or "").strip(),
+                          "nickname": (r.get("nickname") or "").strip()} for r in rows]
+    return _ROSTER[group_id]
+
+
+def dossier_matches(raw):
+    """(exact, loose) profiles from the memory DB; empty pair when it is absent.
+
+    The dossier is a nice-to-have here: @-ing still works off the live roster, so
+    a locked or missing database must not take the whole reply down with it.
+    """
+    try:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from water_group.memory_engine import get_memory_engine
+
+        return get_memory_engine().match_profiles(raw)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  dossier lookup failed: {type(exc).__name__}: {exc}")
+        return [], []
+
+
+def resolve_member(name, group_id):
+    """花名 -> (qq, label), or (None, 原因).
+
+    A bare number is taken as the QQ itself -- the one input that cannot be
+    ambiguous. Everything else is tried against the live roster first and the
+    dossier second: the group card is how people actually address each other in
+    here ("时之锁-肠宝盒"、"坏乖😋"), the dossier is what survives a rename and
+    holds the shorthand people type ("时月"、"孩董"). Each tier is tried exact
+    before loose, so a full name never loses to somebody else's substring.
+
+    A name that fits more than one person is reported, not guessed. @-ing the
+    wrong person reads as a mistake by the bot in a way that a missed @ does not.
+    """
+    raw = (name or "").strip().lstrip("@")
+    if not raw:
+        return None, "空名字"
+
+    members = group_members(group_id)
+    in_group = {m["qq"]: m for m in members}
+    roster_known = bool(members)
+
+    def label_of(qq):
+        mate = in_group.get(qq)
+        return ((mate["card"] or mate["nickname"]) if mate else "") or qq
+
+    if raw.isdigit():
+        if roster_known and raw not in in_group:
+            # A number nobody in the group answers to is not an @, it is a typo.
+            return None, f"{raw} 不在本群"
+        return raw, label_of(raw)
+
+    # 档案里有、但不在本群的人：不能 @，可往往正是用户记错的那个，值得单独说一句。
+    elsewhere = []
+
+    def from_dossier(profs):
+        out = []
+        for p in profs:
+            qq = str(p.get("user_id") or "")
+            if not qq:
+                continue
+            if roster_known and qq not in in_group:
+                elsewhere.append((qq, str(p.get("primary_name") or qq)))
+                continue
+            out.append((qq, label_of(qq) if qq in in_group else str(p.get("primary_name") or qq)))
+        return out
+
+    exact, loose = dossier_matches(raw)
+    tiers = [("本群名片", [(m["qq"], label_of(m["qq"])) for m in members
+                          if raw in (m["card"], m["nickname"])]),
+             ("档案", from_dossier(exact))]
+    if len(raw) >= 2:
+        tiers.append(("本群名片近似", [(m["qq"], label_of(m["qq"])) for m in members
+                                      if raw in m["card"] or raw in m["nickname"]]))
+        tiers.append(("档案近似", from_dossier(loose)))
+
+    for kind, cands in tiers:
+        if len(cands) == 1:
+            return cands[0]
+        if len(cands) > 1:
+            shown = "、".join(f"{label}({qq})" for qq, label in cands[:5])
+            return None, f"{kind}里有 {len(cands)} 个：{shown}"
+
+    if elsewhere:
+        qq, label = elsewhere[0]
+        return None, f"档案里是 {label}({qq})，但不在本群"
+    return None, "没找到"
+
+
+def build_segments(text, group_id, leading=()):
+    """Turn `@{花名}` into real at segments, keeping everything else as text.
+
+    An unresolved name is left as literal text rather than dropped: the reply is
+    usually time-sensitive, and a name that only renders as "@某某" is a smaller
+    loss than a message that never goes out.
+    """
+    segments = []
+    for name in leading:
+        qq, label = resolve_member(name, group_id)
+        if qq:
+            segments.append({"type": "at", "data": {"qq": qq}})
+            segments.append({"type": "text", "data": {"text": " "}})
+            print(f"  at: {name} -> {qq} ({label})")
+        else:
+            print(f"  at: {name} 未解析（{label}）")
+            segments.append({"type": "text", "data": {"text": f"@{name} "}})
+
+    pos = 0
+    for hit in AT_TOKEN.finditer(text or ""):
+        if hit.start() > pos:
+            segments.append({"type": "text", "data": {"text": text[pos:hit.start()]}})
+        name = hit.group(1)
+        qq, label = resolve_member(name, group_id)
+        if qq:
+            segments.append({"type": "at", "data": {"qq": qq}})
+            print(f"  at: {name} -> {qq} ({label})")
+        else:
+            print(f"  at: {name} 未解析（{label}），按文字发出")
+            segments.append({"type": "text", "data": {"text": f"@{name}"}})
+        pos = hit.end()
+    if pos < len(text or ""):
+        segments.append({"type": "text", "data": {"text": text[pos:]}})
+    return segments
+
+
+def onebot_send(group_id, segments, message_id=None):
+    """Send raw OneBot segments, with a native quote in front when asked.
+
+    OneBot takes the reply segment directly, which is what the plan path compiles
+    down to anyway, so this lands the quote on the right message no matter how many
+    batches have rolled over in between.
     """
     base, token = onebot_config()
     if not base or not token:
         return False
-    segments = [{"type": "reply", "data": {"id": message_id}},
-                {"type": "text", "data": {"text": text}}]
+    payload = list(segments)
+    if message_id:
+        payload = [{"type": "reply", "data": {"id": message_id}}, *payload]
     try:
         resp = requests.post(f"{base}/send_group_msg",
-                             json={"group_id": int(group_id), "message": segments},
+                             json={"group_id": int(group_id), "message": payload},
                              headers={"Authorization": f"Bearer {token}"}, timeout=20)
         data = resp.json()
     except (requests.RequestException, ValueError) as exc:
-        print(f"  quote send failed: {type(exc).__name__}: {exc}")
+        print(f"  send failed: {type(exc).__name__}: {exc}")
         return False
     ok = data.get("retcode") == 0
-    print(f"  quote send: retcode={data.get('retcode')} "
+    print(f"  send: retcode={data.get('retcode')} "
           f"message_id={(data.get('data') or {}).get('message_id')}")
     return ok
 
@@ -250,12 +400,24 @@ def list_wakes():
     return 0
 
 
+def latest_group_id():
+    for row in reversed(read_events()):
+        parts = str(row.get("conversation_id") or "").split(":")
+        if len(parts) == 3 and parts[1] == "group":
+            return parts[2]
+    return ""
+
+
 def main():
     parser = argparse.ArgumentParser(description="回一条群消息并记账")
     parser.add_argument("target", nargs="?", help="要回复的消息 id；省略则回最新一条待回")
-    parser.add_argument("text", nargs="?", help="回复正文")
+    parser.add_argument("text", nargs="?", help="回复正文；@ {花名} 会变成真正的 @")
     parser.add_argument("--intent", default="回复群友", help="简短沟通意图")
     parser.add_argument("--no-quote", action="store_true", help="不带引用")
+    parser.add_argument("--at", action="append", default=[], metavar="花名",
+                        help="在正文前面 @ 某人，可重复")
+    parser.add_argument("--who", metavar="花名", help="只解析名字到 QQ，不发送")
+    parser.add_argument("--group", help="配合 --who；省略则取最近一条事件所在的群")
     parser.add_argument("--list", action="store_true", help="只列出 @ 过我的消息")
     args = parser.parse_args()
 
@@ -264,6 +426,10 @@ def main():
 
     if args.list:
         return list_wakes()
+    if args.who:
+        qq, label = resolve_member(args.who, args.group or latest_group_id())
+        print(f"{args.who} -> {qq or '未解析'}（{label}）")
+        return 0 if qq else 1
     if not args.target or not args.text:
         parser.error("需要 <event_id> 和 <text>")
 
@@ -273,20 +439,32 @@ def main():
         return 1
 
     target = int(args.target)
-    print(f"target={target} session={sid}")
+    found = event_target(target)
+    group_id = found[0] if found else (args.group or latest_group_id())
+    if not group_id:
+        print("不知道该发到哪个群：事件里没有 group 信息")
+        return 1
+
+    segments = build_segments(args.text, group_id, leading=args.at)
+    has_at = any(s["type"] == "at" for s in segments)
+    print(f"target={target} group={group_id} session={sid}")
 
     # Quote through OneBot first: it is the only path that can point at a message
     # from an older batch, which is the normal case once the group is chatting.
-    if not args.no_quote:
-        found = event_target(target)
-        if found:
-            if quote_send(found[0], found[1], args.text):
-                record(target, args.text)
-                print("SENT")
-                return 0
-            print("  falling back to the plan path")
-        else:
-            print("  no OneBot id on record for this event; using the plan path")
+    # It is also the only path that can carry an at segment -- plan/send speaks
+    # plain text, so a message with an @ must not be handed to it.
+    if has_at or (not args.no_quote and found):
+        message_id = None if args.no_quote else (found[1] if found else None)
+        if onebot_send(group_id, segments, message_id):
+            record(target, args.text)
+            print("SENT")
+            return 0
+        if has_at:
+            print("SEND_FAILED: 带 @ 的消息只能走 OneBot，计划通道会把它降级成纯文本")
+            return 1
+        print("  falling back to the plan path")
+    elif not args.no_quote:
+        print("  no OneBot id on record for this event; using the plan path")
 
     batch = batch_id()
     if not batch:

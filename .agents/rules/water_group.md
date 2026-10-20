@@ -113,6 +113,34 @@ collector 其实 1 秒内就落盘了，慢的是 Agent 自己隔一阵才看一
 
 **为什么引用不走 `send_chat_reply` 的 `quote`**：`plan_chat_reply` 只接受**当前批次**里的 `target_event_id`，而群里每来一条新消息就开一个新批次。等你写好正文，触发你的那条通常已经落在旧批次里了——此时 plan 要么直接 `target_not_in_batch` 失败，要么改投到最新那条、把引用挂到别人头上（实测回 1202 时批次翻到 1203，引用会引到 1203）。所以引用改走 OneBot 原生 `reply` 消息段，用 collector 已存的 `onebot_message_id`，跨多少批次都不受影响。plan 路径保留为兜底。
 
+### @ 人
+
+正文里写 `@{花名}` 就是**真正的 @**（消息段），不是文字：
+
+```bash
+.venv/Scripts/python.exe water-group/daemon/reply.py 1516 "@{班味鹅} 学废了"
+# 想在正文前面单独 @，用可重复的 --at：
+.venv/Scripts/python.exe water-group/daemon/reply.py 1516 "学废了" --at 班味鹅 --at 时月
+# 只查这个名字对应谁，不发：
+.venv/Scripts/python.exe water-group/daemon/reply.py --who 时之锁
+```
+
+**必须带花括号**：群里正文的「@时月」是普通文字，真正的 @ 是消息段。混为一谈会把随口一提变成一次点名。
+
+解析顺序（`resolve_member`）：纯数字当 QQ → **本群名片精确** → 档案（主名/别名）精确 → 本群名片近似 → 档案近似。名片排在档案前面，因为「花名」在群里最直白的读法是名片（`时之锁-肠宝盒`、`坏乖😋`）；档案兜住改名前的老叫法和只有熟人知道的外号（`孩董` → criss、`领导` → 时月）。
+
+**同名就报，不猜**：`--who momo` 返回「本群名片里有 3 个：momo(953099254)、momo(928627042)、momo(196361530)」，`--who 时之` 返回「本群名片近似里有 2 个：时之地牢–月之捆绑(289554547)、时之锁-肠宝盒(2057796208)」。@ 错人比漏 @ 更像一次失误，所以歧义一律降级成文字。
+
+解析不出来**不拒发**：名字原样以 `@某某` 文字发出，消息照常送达。单字（`@{月}`）不做近似匹配，太容易撞。
+
+**带 @ 的消息只能走 OneBot**：`send_chat_reply` 只吃纯文本，会把 at 段静默降级成文字，所以 `reply.py` 一旦发现 at 段就强制走 OneBot；OneBot 不可用时直接 `SEND_FAILED`，不会退化成一条没有 @ 的消息。想确认真的发出去了，用 `get_msg` 回读：
+
+```bash
+# 回读应看到 [CQ:reply,id=...][CQ:at,qq=...]，只有 at 段才算数
+.venv/Scripts/python.exe -c "import sys,json,requests;sys.path.insert(0,'water-group/daemon');import reply as R;b,t=R.onebot_config();print(json.dumps(requests.post(b+'/get_msg',json={'message_id':<上一步的 message_id>},headers={'Authorization':'Bearer '+t},timeout=15).json().get('data',{}).get('message'),ensure_ascii=False))"
+```
+
+
 <details>
 <summary>它内部做的事（出问题时才需要看）</summary>
 
@@ -242,5 +270,6 @@ tail -20 water-group/logs/napcat-watchdog.log # QQ 是否被反复重注入
 | QQ.exe 越攒越多 | `kill_stale_instances` 匹配失效。**认实例只认 `-q <self_account>`**，别认启动器注入的开关（`--enable-logging` 已被改成 `--disable-gpu`，跟着它走会漏杀） |
 | 注入实例每 20~40 秒崩一次，`0xC06D007F` | **栈是从代理里起的**。沙箱的 `tsbx.dll` 沿进程链继承到 QQ，delay-load 找不到导出就自杀。先看 `napcat-watchdog.log` 有没有 `WARN ... tsbx.dll`；有就是脏栈，`up.py --stop` 之后改用 `start-bot.pyw` 从 explorer 起 |
 | 判断某个 QQ 干不干净 | `Get-Process -Id <pid> -Module` 里**不该**出现 `tsbx.dll`。用户桌面启动的 QQ 本来就没有，所以这个判据只对注入实例有意义 |
+| @ 了但群里没变蓝 | 三种：名字没解析（正文里留成了 `@某某` 文字）、那人不在本群（`--who` 会说）、或者消息走了 `send_chat_reply`（它只吃纯文本）。`get_msg` 回读一眼就分清 |
 
 **注入实例的身份**：`--disable-gpu    -q 3885934113`。用户桌面启动的 QQ 命令行不带任何参数，所以按 `-q <账号>` 匹配永远不会误伤。杀的时候带 `/T`，只杀主进程会把 renderer 和 network utility 留在原地继续占 profile。

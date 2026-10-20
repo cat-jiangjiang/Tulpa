@@ -31,6 +31,10 @@ DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "group_memories.sqlite3"
 MEMORY_SLOTS = 10
 INTEREST_SLOTS = 16
 
+# 泛称不是名字。让「领导」「群友」参与子串匹配，等于任何两个字都能撞上档案：
+# 「领导发奖金」会命中把「领导」写进别名的时月。
+GENERIC_ALIASES = ("领导", "群友")
+
 
 class MemoryEngine:
     """Manages persistent SQLite storage, seeding, command parsing, and context building."""
@@ -182,50 +186,56 @@ class MemoryEngine:
                     )
         return inserted
 
-    def find_profile(self, identifier):
-        """Finds a member profile by user_id, primary_name, or alias."""
+    def match_profiles(self, identifier):
+        """Every profile that answers to `identifier`, split by how well it fits.
+
+        `find_profile` stops at the first hit. That is the right answer to "who is
+        this", and the wrong one for an @-mention: 「时之」 is a substring of both
+        时月 and 时之锁-肠宝盒, so taking the first silently aims the @ at one of
+        them. Handing back the whole set lets the caller see the tie and say so
+        instead of guessing.
+
+        Returns (exact, loose), lists of profile dicts in table order. `exact`
+        means the identifier is the user_id, the primary name, or an alias
+        verbatim; `loose` means it is a >=2 character substring of one. Exact
+        hits come primary-name-first so `find_profile` can keep taking [0].
+        """
         if not identifier:
-            return None
-        ident_str = str(identifier).strip()
-        if not ident_str:
-            return None
+            return [], []
+        ident = str(identifier).strip()
+        if not ident:
+            return [], []
 
         with self.lock, self._connect() as conn:
-            # 1. Exact match on user_id
-            row = conn.execute("SELECT * FROM member_profiles WHERE user_id=?", (ident_str,)).fetchone()
-            if row:
-                return dict(row)
+            # A QQ number is nobody's nickname; settling it first keeps a stray
+            # alias from outranking the account it names.
+            by_id = conn.execute(
+                "SELECT * FROM member_profiles WHERE user_id=?", (ident,)
+            ).fetchone()
+            if by_id:
+                return [dict(by_id)], []
+            rows = [dict(r) for r in conn.execute("SELECT * FROM member_profiles").fetchall()]
 
-            # 2. Exact match on primary_name (case-insensitive)
-            row = conn.execute("SELECT * FROM member_profiles WHERE LOWER(primary_name)=LOWER(?)", (ident_str,)).fetchone()
-            if row:
-                return dict(row)
+        lower = ident.casefold()
+        by_name, by_alias, loose = [], [], []
+        for r in rows:
+            name = str(r["primary_name"]).casefold()
+            aliases = [str(a) for a in json.loads(r["aliases"] or "[]")]
+            if lower == name:
+                by_name.append(r)
+            elif any(lower == a.casefold() for a in aliases):
+                by_alias.append(r)
+            elif len(lower) >= 2 and (
+                lower in name
+                or any(lower in a.casefold() for a in aliases if a not in GENERIC_ALIASES)
+            ):
+                loose.append(r)
+        return by_name + by_alias, loose
 
-            # 3. Match within aliases JSON array (exact case-insensitive match)
-            all_rows = conn.execute("SELECT * FROM member_profiles").fetchall()
-            ident_lower = ident_str.casefold()
-            for r in all_rows:
-                aliases = json.loads(r["aliases"] or "[]")
-                if any(ident_lower == str(a).casefold() for a in aliases):
-                    return dict(r)
-
-            # 4. Conservative substring match on primary_name or specific aliases.
-            # Requires len >= 2 and query is a substring of the profile's name/alias.
-            # Never checks if an alias is a substring of query (preventing "领导发奖金" matching "时月").
-            if len(ident_lower) >= 2:
-                for r in all_rows:
-                    p_name = str(r["primary_name"]).casefold()
-                    if ident_lower in p_name:
-                        return dict(r)
-                    aliases = json.loads(r["aliases"] or "[]")
-                    for a in aliases:
-                        a_str = str(a).casefold()
-                        if a_str in ("领导", "群友"):
-                            continue
-                        if ident_lower in a_str:
-                            return dict(r)
-
-        return None
+    def find_profile(self, identifier):
+        """Finds a member profile by user_id, primary_name, or alias."""
+        exact, loose = self.match_profiles(identifier)
+        return (exact or loose or [None])[0]
 
     def save_profile(self, user_id, primary_name, aliases=None, tone_style="", interests=None, traits=None, key_memories=None):
         """Creates or updates a member profile (cross-group shared)."""
