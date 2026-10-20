@@ -31,6 +31,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import mcp_client  # noqa: E402
+import winconsole  # noqa: E402
 
 ROOT = HERE.parents[1]
 STATE = Path(os.environ.get("TULPA_WG_STATE", ROOT / ".tmp"))
@@ -593,7 +594,10 @@ def wait_for_next(seconds):
     print(f"等下一次唤醒（最多 {seconds}s）…", flush=True)
     cmd = [sys.executable, str(HERE / "listen.py"), "--timeout", str(seconds),
            "--cycles", "1", "--no-digest"]
-    return subprocess.run(cmd, cwd=str(ROOT)).returncode
+    # Without this the child gets a console window of its own, and a fresh
+    # console reads our UTF-8 as the OEM code page. Both were reported.
+    return subprocess.run(cmd, cwd=str(ROOT),
+                          creationflags=winconsole.NO_WINDOW).returncode
 
 
 def main():
@@ -623,6 +627,7 @@ def main():
         # away the SENT line along with it -- leaving no way to tell whether the
         # message went out.
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
+    winconsole.use_utf8_console()
 
     if args.context is not None:
         return show_context(args.context, args.around)

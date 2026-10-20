@@ -27,6 +27,13 @@ ROOT = HERE.parents[1]
 # minutes -- a black box on a timer.
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+sys.path.insert(0, str(HERE))
+import winconsole  # noqa: E402
+
+# Same family as the flag above: if a console does attach, retag it as UTF-8 so
+# the scripts' UTF-8 output is not read through the OEM code page.
+winconsole.use_utf8_console()
+
 
 def python_exe():
     candidate = ROOT / ".venv" / "Scripts" / "python.exe"
