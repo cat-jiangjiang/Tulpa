@@ -81,7 +81,18 @@ done
 
 ## 3. 回复
 
-三步，缺一不可。
+一条命令搞定，**不要手搓 plan/send**：
+
+```bash
+.venv/Scripts/python.exe water-group/daemon/reply.py <消息id> "<正文>"
+# 想看不带引用的版本加 --no-quote；只列待回：reply.py --list
+```
+
+它会自己处理：取 batch → `plan_chat_reply` → `send_chat_reply` → 写已回账本。
+默认首条带 `"quote": true`，开 QQ 原生引用。
+
+<details>
+<summary>它内部做的事（出问题时才需要看）</summary>
 
 **① 取 batch_id** — `.tmp/wg_state.json` 的 `input_batch.id`。批次会过期。
 
@@ -92,8 +103,6 @@ plan_chat_reply(session_id, batch_id, action="reply",
                 expressions=["text"], intent="<简短沟通意图>",
                 target_event_id=<要回的消息 id>)
 ```
-
-必须检查 `state`：
 
 | 返回 | 处理 |
 | --- | --- |
@@ -112,7 +121,14 @@ send_chat_reply(session_id, plan_id,
 ```
 
 `plan_chat_reply` 返回的 `bubbles` 永远是空的，**正文自己写**。
-被 @ 或点名时首条带 `"quote": true`，开 QQ 原生引用。
+
+</details>
+
+### 为什么要有 `.tmp/wg_replied.jsonl`
+
+`mention_only` 的批次只在**新的 @** 到来时返回，所以你刚发的那条自发消息通常还不在
+`wg_events.jsonl` 里。没有这份账本，下一个接管的 Agent 看报告会把已经回过的消息当成
+`[待回]`，再回一遍。`reply.py` 发送成功就记一笔，`up.py` 报告优先读账本。
 
 发完不用写 `wg_ack.txt`，collector 落盘时已经推进了。
 

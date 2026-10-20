@@ -106,6 +106,16 @@ def login_info():
     return info.get("user_id"), info.get("nickname")
 
 
+def self_pids():
+    """Our own pid plus the redirector that launched us.
+
+    `python.exe` in the venv is a shim: it carries the same command line as the
+    interpreter it starts, so a `--status` run would otherwise find and report
+    itself as a running guard.
+    """
+    return {str(os.getpid()), str(os.getppid())}
+
+
 def _match_pids(pattern, exclude=None):
     """PIDs whose command line matches, with launcher shims collapsed.
 
@@ -116,7 +126,7 @@ def _match_pids(pattern, exclude=None):
     if os.name != "nt":
         out = subprocess.run(["pgrep", "-f", pattern], capture_output=True)
         found = [line.strip() for line in out.stdout.decode().splitlines() if line.strip()]
-        return [p for p in found if p != str(exclude)] if exclude else found
+        return [p for p in found if p not in exclude] if exclude else found
     script = ("Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
               f"Where-Object {{ $_.CommandLine -match '{pattern}' }} | "
               "ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }")
@@ -132,7 +142,7 @@ def _match_pids(pattern, exclude=None):
             pairs.append((parts[0], parts[1]))
     matched = {pid for pid, _ in pairs}
     found = [pid for pid, parent in pairs if parent not in matched]
-    return [p for p in found if p != str(exclude)] if exclude else found
+    return [p for p in found if p not in exclude] if exclude else found
 
 
 def supervisor_pids(exclude=None):
@@ -181,7 +191,7 @@ def ensure_napcat():
     # The check is for watchdog.py specifically, not for the guard: at cold start
     # this process *is* the guard, so asking "is a guard running" always answers yes.
     # Injection itself measures ~65 s, so the window has to clear that comfortably.
-    if watchdog_pids(exclude=os.getpid()):
+    if watchdog_pids(exclude=self_pids()):
         print("[1/3] NapCat 离线，守护进程会重新注入，等待…", flush=True)
         for _ in range(24):
             time.sleep(5)
@@ -262,13 +272,36 @@ def heartbeat_age():
         return None
 
 
-def replied_after(event_id, rows):
+def replied_ids():
+    """Ids reply.py has already answered.
+
+    The collector only delivers a batch when someone mentions the bot, so a reply
+    we just sent is usually absent from wg_events.jsonl. Without this ledger the
+    next agent would read the report, see [待回] on an answered message, and reply
+    to it a second time.
+    """
+    ids = set()
+    path = STATE / "wg_replied.jsonl"
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                ids.add(json.loads(line)["id"])
+            except (ValueError, KeyError):
+                continue
+    except OSError:
+        pass
+    return ids
+
+
+def replied_after(event_id, rows, ledger=None):
     """Whether the bot spoke after this message — a cheap proxy for "answered".
 
-    The ack cursor only records what reached disk, so it cannot answer this. A
-    self message appearing after the wake is the next best signal, and it keeps
-    the report honest without asking the agent to maintain another file.
+    The ack cursor only records what reached disk, so it cannot answer this. The
+    local ledger is the primary signal; a self message appearing later in the
+    stream is the fallback for replies sent before the ledger existed.
     """
+    if ledger and event_id in ledger:
+        return True
     seen = False
     for row in rows:
         if row.get("id") == event_id:
@@ -279,7 +312,7 @@ def replied_after(event_id, rows):
     return False
 
 
-def report(exclude_pid=None):
+def report(exclude_pids=None, resident_pid=None):
     account, nickname = (None, None)
     info = login_info()
     if info:
@@ -289,8 +322,11 @@ def report(exclude_pid=None):
     if all(port_open(p) for p in NAPCAT_PORTS):
         napcat = f"在线 ({account} {nickname})" if info else "端口在，OneBot 暂未响应"
     backend = "在线" if all(port_open(p) for p in BACKEND_PORTS) else "离线"
-    pids = supervisor_pids(exclude=exclude_pid)
-    guard = f"运行中 pid={','.join(pids)}" if pids else "未运行"
+    if resident_pid:
+        guard = f"运行中 pid={resident_pid}（本进程常驻）"
+    else:
+        pids = supervisor_pids(exclude=exclude_pids)
+        guard = f"运行中 pid={','.join(pids)}" if pids else "未运行"
     age = heartbeat_age()
     if age is None:
         beat = "无心跳"
@@ -299,6 +335,7 @@ def report(exclude_pid=None):
     else:
         beat = f"{age:.0f}s 前（wait 周期 170s，正常）"
     rows = events()
+    ledger = replied_ids()
     wakes = [e for e in rows if wake_reason(e)][-6:]
 
     print()
@@ -311,7 +348,7 @@ def report(exclude_pid=None):
         print("最近唤醒  :")
         for e in wakes:
             stamp = time.strftime("%H:%M:%S", time.localtime((e.get("timestamp") or 0) / 1000))
-            state = "已回" if replied_after(e.get("id"), rows) else "待回"
+            state = "已回" if replied_after(e.get("id"), rows, ledger) else "待回"
             print(f"  id={e.get('id')} {stamp} [{state}] [{wake_reason(e)}] "
                   f"{e.get('sender')}: {(e.get('content') or '')[:40]}")
     else:
@@ -334,7 +371,7 @@ def main():
     strip_proxy()
 
     if args.status:
-        return report(exclude_pid=os.getpid())
+        return report(exclude_pids=self_pids())
 
     if args.detach:
         ok_napcat, note_napcat = ensure_napcat()
@@ -354,7 +391,7 @@ def main():
     ok_backend = wait_ports(BACKEND_PORTS, 180)
     print("[3/3] 守护循环接管中…", flush=True)
 
-    report()
+    report(resident_pid=os.getpid())
     print(f"[结果] NapCat: {note_napcat} | 后端: {'启动成功' if ok_backend else '未就绪'} | "
           f"守护: 本进程 pid={os.getpid()} 常驻")
     print("[常驻] 不要关闭这个任务；关掉它等于关掉整个水群。", flush=True)

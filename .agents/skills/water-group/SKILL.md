@@ -138,6 +138,15 @@ done
 
 ### 第三步：决策与发言 (Planner -> Replyer)
 
+> [!TIP]
+> **一条命令即可完成本节全部内容**（推荐）：
+> ```bash
+> .venv/Scripts/python.exe water-group/daemon/reply.py <消息id> "<正文>"
+> ```
+> 它自动取 batch、处理 stale/expired 重试、发送、并写入已回账本 `.tmp/wg_replied.jsonl`；
+> 默认首条带 `"quote": true`。`reply.py --list` 可列出现有待回。
+> 下面 1~3 步是它内部做的事，**只在需要自定义多气泡或排查失败时**才手动执行。
+
 1. **Planner (规划与多消息处理)**：
    分析当前群聊氛围与被 @ 的诉求，结合人设决定如何回复。
    - **多群友连续发消息/点名处理**：
