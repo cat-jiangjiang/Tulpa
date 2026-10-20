@@ -160,6 +160,26 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 > 当成已回，现在按账本首条时间戳划线，新消息必须在账本里才算回过
 > （`scripts/check_wake_ledger.py` 钉住这个判定）。
 
+**回之前先看群里在聊什么。** `--list` 只认识「唤醒」，闲聊根本不进 `wg_events.jsonl`
+（`mention_only` 在服务端就滤掉了）。只看 `--list` 等于只看谁拍了你一下，看不到前因后果，
+回出来就会答非所问——群里刚聊完的话题、刚立的人设、刚被纠正的说法，全都接不上。
+
+```bash
+# 最近 30 条（含闲聊）
+.venv/Scripts/python.exe water-group/daemon/reply.py --context 30
+
+# 只看某条之前的部分（正在回一条稍早的消息）
+.venv/Scripts/python.exe water-group/daemon/reply.py --context 30 --around 1760
+```
+
+输出每行是 `id 时间 发送者: 正文`，`我` 表示自己说过的话，`<- 唤醒` 是触发你的那条，
+`<- 回这条` 是 `--around` 指定的目标。数据直接读 `chat_inbox`——后端在决定要不要推送之前
+就已经把每条消息写进去了，所以闲聊一条不落。
+
+> [!WARNING]
+> **不要用 `reply.py --list | tail -4` 当上下文。** 那只是把唤醒日志截断，看到的是
+> 「谁 @ 了我」的最近几条，不是「群里刚才在聊什么」。要看上下文用 `--context`。
+
 ---
 
 ### 第三步：决策与发言 (Planner -> Replyer)

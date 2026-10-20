@@ -13,11 +13,13 @@ message that was already answered, and replies to it twice.
 Usage:
   reply.py <event_id> "<text>" [--intent "..."] [--no-quote]
   reply.py --list
+  reply.py --context 30 [--around <event_id>]
 """
 import argparse
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -36,6 +38,7 @@ SID_FILE = STATE / "wg_session.txt"
 STATE_FILE = STATE / "wg_state.json"
 EVENTS = STATE / "wg_events.jsonl"
 REPLIED = STATE / "wg_replied.jsonl"
+DB = Path(os.environ.get("TULPA_WG_DB", ROOT / "data" / "mcp-access.sqlite3"))
 
 RETRY_SLEEP = 3
 SOURCE_WAIT = 30
@@ -440,6 +443,107 @@ def list_wakes():
     return 0
 
 
+def active_session_id():
+    """The session the collector is holding, read from the database.
+
+    wg_session.txt can lag behind a rebuilt session, and the context query has to
+    follow whichever session the messages were actually written under.
+    """
+    try:
+        db = sqlite3.connect(DB.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return ""
+    try:
+        row = db.execute(
+            "SELECT id FROM chat_sessions WHERE active=1 ORDER BY rowid DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.Error:
+        return ""
+    finally:
+        db.close()
+    return row[0] if row else ""
+
+
+def recent_chatter(limit, around=None):
+    """Every message the group sent, not just the ones that woke us.
+
+    mention_only keeps ordinary chatter out of wg_events.jsonl, so the daemon
+    files cannot answer "what were they talking about just now". chat_inbox can:
+    the backend stores each event before deciding whether to deliver it.
+    """
+    sid = active_session_id() or session_id()
+    if not sid:
+        return []
+    try:
+        db = sqlite3.connect(DB.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    sql = "SELECT id, payload FROM chat_inbox WHERE session_id=?"
+    params = [sid]
+    if around:
+        sql += " AND id<=?"
+        params.append(int(around))
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(max(1, int(limit)))
+    try:
+        rows = db.execute(sql, params).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        db.close()
+    out = []
+    for event_id, payload in reversed(rows):
+        try:
+            data = json.loads(payload)
+        except ValueError:
+            continue
+        if data.get("synthetic"):
+            continue
+        out.append({
+            "id": event_id,
+            "sender": data.get("sender") or "",
+            "text": " ".join((data.get("content") or "").split()),
+            "ts": data.get("timestamp"),
+            "self": bool(data.get("is_self")),
+            "recalled": bool(data.get("recalled")),
+        })
+    return out
+
+
+def show_context(limit, around=None):
+    """Print recent chatter so a reply can follow the thread, not just the ping.
+
+    A wake line says "someone @'d you". It does not say what the group had been
+    talking about for the last twenty minutes, and replying off the ping alone is
+    how a bot answers a question that was already settled three messages later.
+    """
+    import up
+
+    rows = recent_chatter(limit, around)
+    if not rows:
+        print("读不到聊天记录：会话没建立，或数据库里还没有这批消息")
+        return 1
+    wakes = {e.get("id") for e in up.events() if up.wake_reason(e)}
+    span = f"{around} 之前" if around else "最近"
+    print(f"# {span} {len(rows)} 条（含闲聊，不只是 @）")
+    for row in rows:
+        stamp = time.strftime("%H:%M:%S", time.localtime((row["ts"] or 0) / 1000))
+        who = "我" if row["self"] else (row["sender"] or "?")
+        text = row["text"]
+        if len(text) > 120:
+            text = text[:120] + "…"
+        marks = []
+        if row["recalled"]:
+            marks.append("撤回")
+        if row["id"] in wakes:
+            marks.append("唤醒")
+        if around and row["id"] == int(around):
+            marks.append("回这条")
+        tail = f"  <- {'、'.join(marks)}" if marks else ""
+        print(f"{row['id']} {stamp} {who}: {text}{tail}")
+    return 0
+
+
 def latest_group_id():
     for row in reversed(read_events()):
         parts = str(row.get("conversation_id") or "").split(":")
@@ -504,6 +608,10 @@ def main():
     parser.add_argument("--who", metavar="花名", help="只解析名字到 QQ，不发送")
     parser.add_argument("--group", help="配合 --who；省略则取最近一条事件所在的群")
     parser.add_argument("--list", action="store_true", help="只列出 @ 过我的消息")
+    parser.add_argument("--context", type=int, metavar="N",
+                        help="列出最近 N 条聊天（含闲聊），回之前先看群里在聊什么")
+    parser.add_argument("--around", type=int, metavar="ID",
+                        help="配合 --context：只看这条之前的部分")
     args = parser.parse_args()
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -513,6 +621,8 @@ def main():
         # message went out.
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
+    if args.context is not None:
+        return show_context(args.context, args.around)
     if args.list:
         return list_wakes()
     if args.who:

@@ -20,6 +20,7 @@
 .venv/Scripts/python.exe water-group/daemon/up.py --status            # 只读复查
 .venv/Scripts/python.exe water-group/daemon/listen.py --timeout 300   # 挂监听（只活一轮，WAKE 后必须重挂）
 .venv/Scripts/python.exe water-group/daemon/reply.py --list            # 看谁 @ 了我
+.venv/Scripts/python.exe water-group/daemon/reply.py --context 30      # 回之前看群里在聊什么（含闲聊）
 .venv/Scripts/python.exe water-group/daemon/reply.py <id> "<正文>"      # 回一条，自动带原生引用
 ```
 

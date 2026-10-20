@@ -123,6 +123,26 @@ collector 其实 1 秒内就落盘了，慢的是 Agent 自己隔一阵才看一
 它会自己处理：查消息编号 → OneBot 直发带引用 → 写已回账本。
 **每条回复都引用触发的那条消息**（要发纯文本才加 `--no-quote`）。
 
+### 回之前先看上下文
+
+`--list` 只认识「唤醒」，闲聊根本不进 `wg_events.jsonl`——`mention_only` 在服务端就滤掉了。
+只看 `--list` 等于只看谁拍了你一下，看不到前因后果：群里刚聊完的话题、刚立的人设、
+刚被纠正的说法，全都接不上，回出来自然不够灵动。
+
+```bash
+# 最近 30 条（含闲聊）
+.venv/Scripts/python.exe water-group/daemon/reply.py --context 30
+
+# 只看某条之前的部分（正在回一条稍早的消息）
+.venv/Scripts/python.exe water-group/daemon/reply.py --context 30 --around 1760
+```
+
+每行是 `id 时间 发送者: 正文`。`我` 表示自己说过的话，`<- 唤醒` 是触发你的那条，
+`<- 回这条` 是 `--around` 指定的目标。数据直接读 `chat_inbox`——后端在决定要不要推送之前
+就已经把每条消息写进去了，所以闲聊一条不落。
+
+**别用 `--list | tail -4` 当上下文**，那只是把唤醒日志截断，看到的是「谁 @ 了我」的最近几条。
+
 **为什么引用不走 `send_chat_reply` 的 `quote`**：`plan_chat_reply` 只接受**当前批次**里的 `target_event_id`，而群里每来一条新消息就开一个新批次。等你写好正文，触发你的那条通常已经落在旧批次里了——此时 plan 要么直接 `target_not_in_batch` 失败，要么改投到最新那条、把引用挂到别人头上（实测回 1202 时批次翻到 1203，引用会引到 1203）。所以引用改走 OneBot 原生 `reply` 消息段，用 collector 已存的 `onebot_message_id`，跨多少批次都不受影响。plan 路径保留为兜底。
 
 ### 连着几条 @ 怎么办
