@@ -21,6 +21,8 @@ import sys
 import time
 from pathlib import Path
 
+import requests
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
@@ -172,6 +174,58 @@ def send(sid, plan_id, text, quote):
     return state == "SUCCEEDED"
 
 
+def onebot_config():
+    try:
+        data = json.loads((ROOT / "water-group" / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "", ""
+    return str(data.get("onebot_http_url") or "").rstrip("/"), str(data.get("onebot_token") or "")
+
+
+def event_target(event_id):
+    """(group_id, onebot_message_id) for an event the collector already stored."""
+    for row in read_events():
+        if row.get("id") != event_id:
+            continue
+        parts = str(row.get("conversation_id") or "").split(":")
+        if len(parts) == 3 and parts[1] == "group" and row.get("onebot_message_id"):
+            return parts[2], str(row["onebot_message_id"])
+        return None
+    return None
+
+
+def quote_send(group_id, message_id, text):
+    """Send with a native QQ quote straight through OneBot.
+
+    The plan path cannot quote across batches. plan_chat_reply only accepts a
+    target listed in the current batch, and every new group message opens a new
+    batch -- so by the time a reply is composed, the message that woke us up
+    usually belongs to a batch that is already gone. Quoting through the plan
+    then either fails outright or, worse, points at whoever spoke last.
+
+    OneBot takes a raw reply segment, which is exactly what the plan path
+    compiles down to anyway, so this lands the quote on the right message no
+    matter how many batches have rolled over in between.
+    """
+    base, token = onebot_config()
+    if not base or not token:
+        return False
+    segments = [{"type": "reply", "data": {"id": message_id}},
+                {"type": "text", "data": {"text": text}}]
+    try:
+        resp = requests.post(f"{base}/send_group_msg",
+                             json={"group_id": int(group_id), "message": segments},
+                             headers={"Authorization": f"Bearer {token}"}, timeout=20)
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        print(f"  quote send failed: {type(exc).__name__}: {exc}")
+        return False
+    ok = data.get("retcode") == 0
+    print(f"  quote send: retcode={data.get('retcode')} "
+          f"message_id={(data.get('data') or {}).get('message_id')}")
+    return ok
+
+
 def list_wakes():
     """Same wake rules and same answered-check as `up.py --status`.
 
@@ -217,26 +271,36 @@ def main():
     if not sid:
         print("没有会话 id，先跑 up.py 让 collector 建立会话")
         return 1
+
+    target = int(args.target)
+    print(f"target={target} session={sid}")
+
+    # Quote through OneBot first: it is the only path that can point at a message
+    # from an older batch, which is the normal case once the group is chatting.
+    if not args.no_quote:
+        found = event_target(target)
+        if found:
+            if quote_send(found[0], found[1], args.text):
+                record(target, args.text)
+                print("SENT")
+                return 0
+            print("  falling back to the plan path")
+        else:
+            print("  no OneBot id on record for this event; using the plan path")
+
     batch = batch_id()
     if not batch:
         print("没有可用批次，等 collector 收下一批")
         return 1
-
-    target = int(args.target)
-    print(f"target={target} session={sid} batch={batch}")
     plan_id, final_target = plan(sid, batch, target, args.intent, not args.no_quote)
     if not plan_id:
         print("PLAN_FAILED")
         return 1
-
-    # Quoting only makes sense when the plan still points at the message we meant
-    # to answer; after a rotation it would quote a stranger's line.
     quote = (not args.no_quote) and final_target == target
     if send(sid, plan_id, args.text, quote):
         record(target, args.text)
         if final_target != target:
-            print(f"note: batch moved, plan target was {final_target}; "
-                  f"ledger still records {target} as answered")
+            print(f"note: batch moved, plan target was {final_target}")
         print("SENT")
         return 0
     print("SEND_FAILED")
