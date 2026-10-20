@@ -160,12 +160,12 @@ def main():
             beat()
 
             if msgs:
-                # Keep the delivered batch stable until the agent acknowledges it.
-                deadline = time.time() + 120
-                while time.time() < deadline:
-                    if read_ack() > ack:
-                        break
-                    time.sleep(2)
+                # Acknowledge on arrival, not on reply. The cursor records that the
+                # batch reached disk — which it just did — so holding it open until
+                # an agent composes a reply left the listener deaf for up to two
+                # minutes after every batch. The batch itself is preserved in
+                # wg_events.jsonl, so nothing is lost by moving the cursor on.
+                ACK.write_text(str(data.get("read_through_id") or ack), encoding="utf-8")
                 beat()
             else:
                 time.sleep(2)
