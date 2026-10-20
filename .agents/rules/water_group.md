@@ -6,25 +6,35 @@
 ## 0. 一句话接管
 
 ```bash
-.venv/Scripts/python.exe water-group/daemon/up.py
+.venv/Scripts/python.exe -c "import subprocess,pathlib; subprocess.Popen(['explorer.exe', str(pathlib.Path('water-group/start-bot.pyw').resolve())])"
 ```
 
-**必须放到后台跑，而且它会一直不返回——这是设计如此，不是卡住。**
+**不要直接跑 `up.py`。** 它确实是整栈的入口，但必须由 explorer 代启动：代理的沙箱给每个
+子进程注入 `tsbx.dll`，注入沿 up.py → supervisor → watchdog → NapCatWinBootMain → QQ
+一路继承，QQ 被注入后约 20 秒必崩（`0xC06D007F`，delay-load 的 `ERROR_PROC_NOT_FOUND`），
+watchdog 于是无限重注入——桌面上那堆黑框就是这么攒出来的。
+
+`start-bot.pyw` 是 `.pyw`（关联 `pythonw.exe`，无控制台），经 explorer 拉起时整条链干净。
+它幂等：端口已在就什么都不做；否则先 `up.py --stop` 退掉旧栈再起新的。
+
+**必须放到后台跑，而且它会一直不返回——这是设计如此，不是卡住。** 需要看输出时读
+`water-group/logs/launcher.log`。
 
 ```bash
 # 正确姿势：后台常驻
 <上面的命令>   # run_in_background = true
 ```
 
-它会按依赖顺序拉起 NapCat → `app.py` → 采集/保活守护，打印状态后**原地进入守护循环**，
-永不退出。这个进程就是整个水群的命脉：
+它会按依赖顺序拉起 NapCat → `app.py` → 采集/保活守护，然后进入守护循环**永不退出**。
+这个进程就是整个水群的命脉：
 
-> ⚠️ 关掉这个后台任务 = 关掉整个水群。不要 `kill`、不要「清理后台任务」、不要重启它。
-> 需要复查状态时跑 `--status`（只读，不碰任何进程）。
+> ⚠️ 关闭它只能用 `up.py --stop`（`stop.ps1` 只管 `app.py`，停不干净）。
+> 不要 `kill`、不要「清理后台任务」、不要重启它。复查状态跑 `up.py --status`（只读）。
 
-**为什么不能 detach 后返回**：本机会话结束时连带清理整棵进程树。
-实测 `DETACHED_PROCESS` 和 `CREATE_BREAKAWAY_FROM_JOB` 的子进程**连一行日志都写不出来就被杀**，
-`schtasks.exe`、`cmd.exe`、`reg.exe` 都在沙箱黑名单里。唯一可靠的办法就是父进程自己不走。
+**为什么必须绕开代理进程**：本机会话结束时连带清理整棵进程树，而代理的沙箱还会给每个子进程
+注入 `tsbx.dll`。实测在代理里直接起的 `DETACHED_PROCESS` 子进程连一行日志都写不出来就被杀；
+`schtasks.exe`、`cmd.exe`、`reg.exe` 又都在沙箱黑名单里。唯一走通的路是让 explorer 代启动
+`start-bot.pyw`：父进程是 explorer，既不带注入，也不在代理的 job 对象里。
 
 跑完读输出末尾的「最近唤醒」：
 
@@ -224,5 +234,7 @@ tail -20 water-group/logs/napcat-watchdog.log # QQ 是否被反复重注入
 | `source_unavailable` 持续 | NapCat 掉线，`up.py` 会重新注入 |
 | 桌面时不时弹黑框 | 多半是 `QQ has stopped working` 崩溃框，一个实例崩一次攒一个。`SetErrorMode` 已压掉；如果还在弹，说明有别的东西在开控制台，查是谁没带 `CREATE_NO_WINDOW` |
 | QQ.exe 越攒越多 | `kill_stale_instances` 匹配失效。**认实例只认 `-q <self_account>`**，别认启动器注入的开关（`--enable-logging` 已被改成 `--disable-gpu`，跟着它走会漏杀） |
+| 注入实例每 20~40 秒崩一次，`0xC06D007F` | **栈是从代理里起的**。沙箱的 `tsbx.dll` 沿进程链继承到 QQ，delay-load 找不到导出就自杀。先看 `napcat-watchdog.log` 有没有 `WARN ... tsbx.dll`；有就是脏栈，`up.py --stop` 之后改用 `start-bot.pyw` 从 explorer 起 |
+| 判断某个 QQ 干不干净 | `Get-Process -Id <pid> -Module` 里**不该**出现 `tsbx.dll`。用户桌面启动的 QQ 本来就没有，所以这个判据只对注入实例有意义 |
 
 **注入实例的身份**：`--disable-gpu    -q 3885934113`。用户桌面启动的 QQ 命令行不带任何参数，所以按 `-q <账号>` 匹配永远不会误伤。杀的时候带 `/T`，只杀主进程会把 renderer 和 network utility 留在原地继续占 profile。

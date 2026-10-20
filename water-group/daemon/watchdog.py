@@ -41,6 +41,13 @@ BACKOFF_MAX = 1800
 ZOMBIE_LIMIT = int(os.environ.get("TULPA_WG_ZOMBIE_LIMIT", "30"))
 HALT_SLEEP = 600
 
+# How long a freshly injected instance gets to either settle or die before the
+# watchdog judges it. Health cannot answer that question: the node sidecar keeps
+# replying to get_login_info for minutes after the QQ main has crashed, so a probe
+# fired two seconds after launch always says "online". The crash itself lands at
+# roughly twenty seconds, so the settle window has to clear that comfortably.
+SETTLE_SECONDS = int(os.environ.get("TULPA_WG_SETTLE", "60"))
+
 
 def onebot_token():
     token = os.environ.get("TULPA_ONEBOT_TOKEN", "").strip()
@@ -216,6 +223,12 @@ def kill_injected_instances():
 
 def main():
     log("start")
+    import bootstrap
+
+    sandbox = bootstrap.sandbox_dll()
+    if sandbox:
+        log(f"WARN this process carries {sandbox}: every injected QQ dies ~20s after "
+            f"launch (0xC06D007F). Restart the stack from water-group\\start-bot.pyw.")
     fails = 0
     while True:
         try:
@@ -227,14 +240,28 @@ def main():
             if stuck:
                 log(f"crash dialog from injected pid={stuck}, taking the instance down")
                 kill_injected_instances()
+                if fails >= MAX_CONSECUTIVE_FAILURES:
+                    # Every fresh instance dies within seconds. Re-injecting on a
+                    # tight loop does not fix that, it only churns the process table
+                    # and burns CPU. Cool right down and try once more: resetting the
+                    # counter is what makes this a slow retry instead of a permanent
+                    # stop, which would leave the bot down after a transient cause.
+                    log(f"halt: {fails} consecutive crashes, cooling down {HALT_SLEEP}s before one more try")
+                    time.sleep(HALT_SLEEP)
+                    fails = 0
+                    continue
                 time.sleep(2)
                 relaunch()
-                for _ in range(40):
-                    time.sleep(2)
-                    if healthy():
-                        log("online after crash")
-                        break
-                fails = 0
+                time.sleep(SETTLE_SECONDS)
+                again = [pid for pid in crash_dialog_pids() if is_our_instance(pid)]
+                if again:
+                    fails += 1
+                    delay = min(BACKOFF_BASE * (2 ** (fails - 1)), BACKOFF_MAX)
+                    log(f"crash loop (#{fails}) pid={again}, backing off {delay}s")
+                    time.sleep(delay)
+                else:
+                    log("settled after crash")
+                    fails = 0
                 continue
 
             if healthy():

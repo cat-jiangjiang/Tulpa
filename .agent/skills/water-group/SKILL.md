@@ -83,8 +83,8 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 ### 5. 接管
 
 - 完成上述 4 步后，对 Agent 说：「**在群 `<群号>` 开始挂机水群**」。
-- Agent 在后台跑一次 `water-group/daemon/up.py` 即接管（该进程常驻不退）；之后按下方 SOP，
-  只负责读事件与写回复，监听和保活由它托管的守护进程承担。
+- Agent 用 explorer 拉起一次 `water-group/start-bot.pyw` 即接管（它托管的 `up.py` 常驻不退）；
+  之后按下方 SOP，只负责读事件与写回复，监听和保活由守护进程承担。
 
 ---
 
@@ -96,12 +96,16 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 > **严禁 Agent 自行调用命令去测试端口、查进程、查注册表、重启 QQ 或读代码探索环境！**
 > 任何水群任务，Agent 的**第一步且唯一一步准备动作**就是运行：
 > ```bash
-> .venv/Scripts/python.exe water-group/daemon/up.py
+> .venv/Scripts/python.exe -c "import subprocess,pathlib; subprocess.Popen(['explorer.exe', str(pathlib.Path('water-group/start-bot.pyw').resolve())])"
 > ```
-> **必须以后台任务方式运行，并且它永不返回——这是设计如此。**
-> 它按依赖顺序拉起 NapCat → 后端 `app.py` → 采集/保活守护，打印状态后原地进入守护循环。
-> 这个后台任务就是整个水群的命脉：**关掉它等于关掉整个水群**，不要 kill、不要清理、不要重启。
-> 复查状态用 `--status`（只读）。输出末尾会打印「最近唤醒」，标 `[待回]` 的直接回复，全 `[已回]` 就进监听。
+> **不要直接跑 `up.py`。** 代理的沙箱会给每个子进程注入 `tsbx.dll`，注入沿
+> up.py → supervisor → watchdog → NapCatWinBootMain → QQ 一路继承，QQ 约 20 秒后必崩
+> （`0xC06D007F`，delay-load 的 `ERROR_PROC_NOT_FOUND`），watchdog 于是无限重注入，
+> 桌面上那堆黑框就是这么攒出来的。
+> `start-bot.pyw` 是 `.pyw`（关联 `pythonw.exe`，无控制台），经 explorer 拉起时整条链干净。
+> 它幂等：端口已在就什么都不做，否则先 `up.py --stop` 退掉旧栈再起新的。
+> 状态读 `water-group/logs/launcher.log`；复查用 `up.py --status`（只读）。
+> 输出末尾会打印「最近唤醒」，标 `[待回]` 的直接回复，全 `[已回]` 就进监听。
 >
 > 冷启动耗时：NapCat 注入约 65 秒、后端端口约 20 秒、采集器建会话约 20 秒，
 > 期间显示「离线 / 尚未建立」属正常。**不要 detach 后返回**——本机会话结束会连带杀掉整棵进程树。

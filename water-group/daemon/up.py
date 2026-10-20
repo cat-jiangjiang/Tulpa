@@ -160,6 +160,33 @@ def watchdog_pids(exclude=None):
     return _match_pids("daemon[\\\\/]watchdog\\.py", exclude)
 
 
+def stop_stack():
+    """Take the resident guard and everything under it down.
+
+    stop.ps1 only covers app.py, so a running stack could not be retired at all --
+    which matters because a stack started from inside the agent sandbox cannot be
+    repaired in place: every child inherits the injection that kills QQ, so the only
+    cure is to stop it and start again from Explorer. Killing the guard with /T
+    takes the watchdog, collector, db_keeper and app with it; kill_stale_instances
+    covers an injected QQ that outlived the tree.
+    """
+    killed = []
+    for finder in (supervisor_pids, watchdog_pids):
+        for pid in finder(exclude=self_pids()):
+            subprocess.run(["taskkill", "/F", "/T", "/PID", pid],
+                           capture_output=True, timeout=20, creationflags=NO_WINDOW)
+            killed.append(pid)
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    try:
+        from water_group import bootstrap
+
+        instances = bootstrap.kill_stale_instances()
+    except Exception:  # noqa: BLE001
+        instances = 0
+    return killed, instances
+
+
 def spawn(args, log_name):
     STATE.mkdir(parents=True, exist_ok=True)
     log = open(STATE / log_name, "ab")
@@ -369,11 +396,18 @@ def main():
     parser.add_argument("--status", action="store_true", help="只报告状态，不启动任何东西")
     parser.add_argument("--detach", action="store_true",
                         help="旧行为：后台拉起 supervisor 后立即返回（沙箱内不可靠）")
+    parser.add_argument("--stop", action="store_true",
+                        help="停掉常驻守护、看护与注入实例后退出")
     args = parser.parse_args()
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     strip_proxy()
+
+    if args.stop:
+        killed, instances = stop_stack()
+        print(f"[停止] 守护/看护 pid={killed or '无'}，注入实例 {instances} 个")
+        return 0
 
     if args.status:
         return report(exclude_pids=self_pids())

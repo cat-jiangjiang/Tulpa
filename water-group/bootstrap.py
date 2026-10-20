@@ -79,6 +79,32 @@ def silence_crash_dialogs():
         pass
 
 
+def sandbox_dll():
+    """Name of the agent-sandbox DLL injected into this process, or "".
+
+    The command sandbox injects ``tsbx.dll`` into every process it spawns, and the
+    injection is inherited down the whole chain: up.py -> supervisor -> watchdog ->
+    NapCatWinBootMain -> QQ.exe. QQ does not survive it. Every injected instance
+    dies roughly twenty seconds after launch with 0xC06D007F -- the delay-load
+    helper's ERROR_PROC_NOT_FOUND -- because the hook answers one of its imports
+    with "no such export". The visible symptom is a crash dialog per instance and a
+    watchdog that relaunches forever.
+
+    Nothing in the repository can undo that, so the stack has to be started from
+    Explorer (start-bot.vbs); this check exists so the logs say so instead of
+    leaving the next reader to rediscover it from a stack trace.
+    """
+    if os.name != "nt":
+        return ""
+    try:
+        import ctypes
+
+        handle = ctypes.windll.kernel32.GetModuleHandleW("tsbx.dll")
+        return "tsbx.dll" if handle else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def start_process_detached(cmd, cwd=None, log_name=None, env=None):
     silence_crash_dialogs()
     creationflags = 0
