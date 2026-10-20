@@ -12,23 +12,23 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 ## 一、核心原则与行为准则
 
 1. **去 AI 味与严遵人设档案核心**：
-   - **严格遵循当前装载的人格卡**（如 `water-group/personas/yu_bao.md` 🐟包）：`bootstrap.py` 启动输出中已载入人设卡全文，主脑必须通读并牢记！
+   - **严格遵循当前装载的人格卡**（如 `water-group/personas/yu_bao.md` 🐟包）：开工前先把人设卡读一遍，通读并牢记。
    - **群友专属档案与梗铁律**：人设卡中明确记录了核心群友档案（例如【时月】：地牢主、大网黄反差、原神、三国杀；【criss/孩董】：外号妃姬杯、变态🐻男控、狂热喜欢大胸猛男/🐻男）。**当群聊提及或群友提问涉及这些人设事实时，必须 100% 依据人设卡内容进行调侃回复，严禁脱离人设凭空胡编**（例如被问“孩董喜欢什么”，必须依据人设卡回答喜欢🐻男/大胸猛男，严禁凭空胡扯“喜欢爆金币”）！
    - 像真实群友打字，每句话 1~10 个字，不换行，想补充就拆成下一条。
    - 严禁客服腔、严禁排比升华、严禁长篇大论、严禁在消息中包含括号内心戏（如 `(高傲地抱胸)`）。
    - 可以发「？」、「草」、「乐」、「6」、「难绷」，**但严禁连续多轮以相同单字或口癖机械结尾（防语癖固化与自回归复读）**；适时变换反问、陈述细节、翻小本本黑料或表情互动。
 2. **防后台绑定铁律（禁止当数据标注工）**：
-   - **当 `wait_chat_messages` 返回 `event == "learning_ready"` 时，严禁调用 `claim_chat_learning`！**
-   - 绝不执行语料提取和语法审核任务；直接沿 `next_call` 再次调用 `wait_chat_messages`，保持专注水群不分心。
+   - 严禁调用 `claim_chat_learning`，绝不执行语料提取和语法审核任务。
+   - `event == "learning_ready"` 由守护进程自己消化，不会交到你手上；专注水群。
 3. **大群底层防烧 Token 铁律（Mention / 点名底层门禁 & 连贯追问窗口）**：
-   - 在几十人以上的大群，调用 `wait_chat_messages` 时**必须显式携带 `"mention_only": true`**！
-   - **底层静默与点名唤醒**：普通群友闲聊 100% 在底层静默流转，**绝不会提前唤醒 MCP**；只有群友真正 `@机器人`、引用回复、或文字点名指定称呼（根据 `water-group/config.json` 中的 `self_names` 配置，如 `["小鲸鱼", "鲸鱼"]`）时，MCP 才会携带上下文唤醒返回！其他所有称呼一律静默忽略。
-   - **连贯追问窗口 (Follow-up Window)**：一旦被唤醒，系统自动开启对话窗口（默认最多追问 3 轮或 60 秒内），在此窗口内群友接话无需重复 @；3 轮耗尽、超时或 Agent 选择 `silence` 时，立即退回完全静默休眠，彻底杜绝 Token 爆炸。
+   - 唤醒门禁由服务端完成：`collector.py` 常驻 wait 时已带 `mention_only`，**Agent 不需要也不应该自己传这个参数**。
+   - **底层静默与点名唤醒**：普通群友闲聊 100% 在底层静默流转；只有 `@机器人`、引用回复、或文字点名（`water-group/config.json` 的 `self_names`，当前 `🐟包` / `鱼包` / `小鱼包` / `鱼宝`）才会落进 `.tmp/wg_events.jsonl`。其他称呼一律静默忽略。
+   - **连贯追问窗口 (Follow-up Window)**：一旦被唤醒，系统自动开启对话窗口（默认最多 3 轮或 60 秒），窗口内群友接话无需重复 @。
 4. **流水线不中断**：
-   - 收到消息并回复后，向用户输出简要回显（如 `> [水群] <群名> 回复 某群友：“在呢，干嘛”`），**必须立即继续调用 `wait_chat_messages`**。
-   - 遇超时（`messages: []`，空闲 idle）时，**静默继续等待下一轮**，不要主动结束任务。
+   - 回复后向用户输出简要回显（如 `> [水群] <群名> 回复 某群友：“在呢，干嘛”`），然后**继续轮询 `.tmp/wg_events.jsonl`**。
+   - 没有新消息就静默继续等，不要主动结束任务，也不要改去调 `wait_chat_messages`。
 5. **群友动态小本本记忆与专属调侃（两层记忆系统）**：
-   - **L1 实时会话上下文**：`wait_chat_messages` 返回的 `chat_guidance.member_dossiers` 会自动注入当面发言群友的超精简画像（外号、风格、XP喜好、核心记忆，每人约 80 tokens），无需手动查询即可直接利用其专属梗自然调侃。
+   - **L1 实时会话上下文**：`plan_chat_reply` 返回的上下文（以及 `.tmp/wg_state.json` 里的 `chat_guidance.member_dossiers`）会自动注入当面发言群友的超精简画像（外号、风格、XP喜好、核心记忆，每人约 80 tokens），无需手动查询即可直接利用其专属梗自然调侃。
    - **L2 DB 持久存储与检索**：持久化保存在 SQLite (`data/group_memories.sqlite3`) 中。支持跨群共享性格/XP画像，群内专属私密事件隔离。当群友发问“你还记得我吗”、“我喜欢什么”、“你小本本记了啥”或需要精确调侃时，直接调用 MCP 工具 `query_member_dossier(identifier="...", group_id="...")` 深度检索。
    - **三路记忆输入**：
      - **直接互动捎带**：群友 @机器人 或与机器人互动时自动提取喜好与名片。
@@ -80,53 +80,54 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
   ```
 - 该脚本会自动将角色卡同步至内核库，并检查 OneBot 群列表自动热重载或预备 Session。
 
-### 5. 唤醒 Antigravity 开始挂机水群
-- 完成上述 4 步后，在 Antigravity 对话中直接说：“**开始水群**”或“**挂机水群**”。
-- Agent 自动接管并进入下方 SOP 挂机循环。
+### 5. 接管
+
+- 完成上述 4 步后，对 Agent 说：「**在群 `<群号>` 开始挂机水群**」。
+- Agent 跑一次 `water-group/daemon/up.py` 即接管；之后按下方 SOP，只负责读事件与写回复，
+  监听和保活由常驻守护进程承担。
 
 ---
 
 ## 三、标准化执行流程 (SOP)
 
-### 第一步：一键自检与就绪启动（禁止 Agent 自行探索！）
+### 第一步：一键接管（禁止 Agent 自行探索！）
 
 > [!IMPORTANT]
 > **严禁 Agent 自行调用命令去测试端口、查进程、查注册表、重启 QQ 或读代码探索环境！**
-> 任何水群任务，Agent 的**第一步且唯一一步准备动作**就是运行一键启动脚本：
+> 任何水群任务，Agent 的**第一步且唯一一步准备动作**就是运行：
 > ```bash
-> uv run python water-group/bootstrap.py [--group <群号>]
+> .venv/Scripts/python.exe water-group/daemon/up.py
 > ```
-> 该脚本会自动拉起所有离线的后台进程（NapCat、Tulpa、端口转发），自动同步群状态与人设，并在输出最后直接给出目标群的 `session_id` 和完整的 MCP 调用参数！
-> 
-> **【启动即时回显铁律】**：
-> 运行该脚本拿到 `session_id` 后，在发起长轮询 `wait_chat_messages` 之前，**必须立即向用户输出一行系统就绪回显**（例如：`> [系统] 水群组件全部就绪。已接入群 1059426859，人设【🐟包】，进入后台静默守护监听中，等待群友发言...`）！
-> 杜绝因长轮询等待群友发言（可能静默几十秒）导致界面无响应让用户误以为启动失败或卡死。
+> 它按依赖顺序拉起 NapCat → 后端 `app.py` → 守护 `supervisor`，幂等，已就绪的跳过。
+> 只看不动加 `--status`。输出末尾会打印「最近唤醒」，标 `[待回]` 的直接回复，全 `[已回]` 就进监听。
 
 ---
 
-### 第二步：挂起监听消息循环 (`wait_chat_messages`)
+### 第二步：读事件流水（不要自己 wait）
 
-对目标群的 `session_id` 调用：
-```json
-{
-  "ServerName": "tulpa",
-  "ToolName": "wait_chat_messages",
-  "Arguments": {
-    "session_id": "<session_id>",
-    "timeout_seconds": 150,
-    "acknowledge_through_id": <read_through_id>,
-    "known_prompt_version": "<prompt_version>",
-    "mention_only": true
-  }
-}
+守护进程里的 `collector.py` 常驻 `wait_chat_messages`，消息先落盘再交给 Agent。
+
+> [!WARNING]
+> **绝不要自己调 `wait_chat_messages`**。会和 collector 抢同一个会话，返回
+> 「此会话已有 Agent 在等待」；而且工具超时会把循环打断——这正是旧做法失效的根因。
+
+等新消息用普通命令轮询文件：
+
+```bash
+base=$(wc -l < .tmp/wg_events.jsonl)
+for i in $(seq 1 56); do
+  [ "$(wc -l < .tmp/wg_events.jsonl)" -gt "$base" ] && break
+  sleep 5
+done
 ```
-*(注：小测试群若希望自然插话，可不传 `mention_only` 或设为 `false`；大群必须设为 `true`)*
 
-- **分支 A（空闲 idle 或 learning_ready）**：
-  返回 `messages: []` 或 `event: "learning_ready"`：
-  说明当前 150 秒内无人 @ 机器人。**直接带上最新的 read_through_id 再次调用 `wait_chat_messages`**，继续挂起监听，无需任何回复规划。
-- **分支 B（真正收到新消息 `messages: [...]`）**：
-  由于开启了 `mention_only`，返回的消息中**必然包含明确 @ 机器人或引用机器人的事件**（并附带前面的群聊背景）！立即进入第三步决策与发言。
+唤醒条件（服务端已过滤一次，这里复核）：
+
+- `segments` 有 `at` 且 `qq` 等于机器人号
+- `segments` 有 `reply`，且被引用的是机器人自己发的
+- 正文含 `config.json` 的 `self_names` 任一词（`🐟包` / `鱼包` / `小鱼包` / `鱼宝`）
+
+`.tmp/wg_state.json` 里有最近一次 wait 的完整返回，`input_batch.id` 就是下一步要用的批次。
 
 ---
 
@@ -177,11 +178,11 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
    - **Stale 纠错容错**：若返回 `error_code: "stale"`（代表原提问者在构思窗口内又有撤回或纠错更正），读取 `updated_chat` 中该提问者的最新修正意图，重新 plan 并发送。
 3. **回显并继续监听**：
    打印简明回显：`> [水群] <群名> 引用回复 <群友昵称>：“<发送内容>”`
-   **随后立即回到第二步调用 `wait_chat_messages`**。
+   **随后继续轮询 `.tmp/wg_events.jsonl`**，不要回头调 `wait_chat_messages`。
 
 ---
 
-## 三、常用快捷控制与配置
+## 四、常用快捷控制与配置
 
 - **群成员号码与身份标注（精准怼人）**：
   - **静态配置文件标注**：在 `water-group/config.json` 的群配置下配置 `"member_mappings"`（绑定真实 QQ 号、真名、群名片、外号与人设狠料，启动时自动对齐合并）。
