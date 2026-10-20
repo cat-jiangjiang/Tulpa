@@ -175,12 +175,20 @@ def send(sid, plan_id, text, quote):
     return state == "SUCCEEDED"
 
 
-def onebot_config():
+def _config():
     try:
-        data = json.loads((ROOT / "water-group" / "config.json").read_text(encoding="utf-8"))
+        return json.loads((ROOT / "water-group" / "config.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return "", ""
+        return {}
+
+
+def onebot_config():
+    data = _config()
     return str(data.get("onebot_http_url") or "").rstrip("/"), str(data.get("onebot_token") or "")
+
+
+def self_account():
+    return str(_config().get("self_account") or "")
 
 
 # 只有写在花括号里的名字才算 @：群里正文的「@时月」是普通文字，真正的 @ 是消息段，
@@ -265,6 +273,7 @@ def resolve_member(name, group_id):
     members = group_members(group_id)
     in_group = {m["qq"]: m for m in members}
     roster_known = bool(members)
+    me = self_account()
 
     def label_of(qq):
         mate = in_group.get(qq)
@@ -274,6 +283,8 @@ def resolve_member(name, group_id):
         if roster_known and raw not in in_group:
             # A number nobody in the group answers to is not an @, it is a typo.
             return None, f"{raw} 不在本群"
+        if raw == me:
+            return None, "是我自己"
         return raw, label_of(raw)
 
     # 档案里有、但不在本群的人：不能 @，可往往正是用户记错的那个，值得单独说一句。
@@ -302,7 +313,10 @@ def resolve_member(name, group_id):
 
     for kind, cands in tiers:
         if len(cands) == 1:
-            return cands[0]
+            qq, label = cands[0]
+            if qq == me:
+                return None, "是我自己"
+            return qq, label
         if len(cands) > 1:
             shown = "、".join(f"{label}({qq})" for qq, label in cands[:5])
             return None, f"{kind}里有 {len(cands)} 个：{shown}"
