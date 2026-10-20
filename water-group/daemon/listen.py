@@ -22,6 +22,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 
+# watch.py and dossier.py are console programs. Called from a console-less parent
+# they each get a console window of their own, and this loop calls them every few
+# minutes -- a black box on a timer.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def python_exe():
     candidate = ROOT / ".venv" / "Scripts" / "python.exe"
@@ -30,7 +35,8 @@ def python_exe():
 
 def run(script, *args):
     """Run a sibling daemon script with the caller's stdout, and return its code."""
-    return subprocess.run([python_exe(), str(HERE / script), *args], cwd=str(ROOT)).returncode
+    return subprocess.run([python_exe(), str(HERE / script), *args], cwd=str(ROOT),
+                          creationflags=NO_WINDOW).returncode
 
 
 def main():

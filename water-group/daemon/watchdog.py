@@ -20,6 +20,12 @@ import httpx
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "water-group"))
 
+# The watchdog runs without a console, so any console child it spawns (powershell,
+# netstat, taskkill) gets a fresh console window -- the black box that flashes
+# every time a probe runs. CREATE_NO_WINDOW keeps them silent; we only ever read
+# their redirected stdout.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 LOG = ROOT / "water-group" / "logs" / "napcat-watchdog.log"
 CONFIG = ROOT / "water-group" / "config.json"
 PORT = int(os.environ.get("TULPA_ONEBOT_PORT", "43000"))
@@ -93,7 +99,7 @@ def dead_instance_count():
     )
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                             capture_output=True, timeout=25)
+                             capture_output=True, timeout=25, creationflags=NO_WINDOW)
         text = out.stdout.decode("utf-8", "ignore").strip()
         return int(text) if text.isdigit() else 0
     except Exception:  # noqa: BLE001
@@ -102,7 +108,8 @@ def dead_instance_count():
 
 def owner_pid():
     try:
-        raw = subprocess.run(["netstat", "-ano"], capture_output=True, timeout=10).stdout or b""
+        raw = subprocess.run(["netstat", "-ano"], capture_output=True, timeout=10,
+                             creationflags=NO_WINDOW).stdout or b""
         out = raw.decode("utf-8", errors="ignore")
     except Exception:  # noqa: BLE001
         return None
@@ -126,6 +133,23 @@ def relaunch():
         return False
     log(f"launch -> {ok} {note}")
     return ok
+
+
+def kill_injected_instances():
+    """Take down every QQ instance this launcher started, whole tree.
+
+    The port belongs to NapCat's node sidecar, not to QQ itself, so killing the
+    port owner leaves the QQ main running with no bridge: a ~190 MB orphan that
+    still holds the shared profile and fights whatever gets injected next. That
+    is how ten of them accumulated while the log kept reporting a clean relaunch.
+    """
+    import bootstrap
+
+    try:
+        return bootstrap.kill_stale_instances()
+    except Exception as exc:  # noqa: BLE001
+        log(f"instance cleanup failed: {type(exc).__name__}: {exc}")
+        return 0
 
 
 def main():
@@ -165,10 +189,9 @@ def main():
                 continue
 
             pid = owner_pid()
-            if pid:
-                log(f"unresponsive pid={pid}, terminating")
-                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                               capture_output=True, timeout=20)
+            killed = kill_injected_instances()
+            log(f"unresponsive pid={pid}, killed {killed} injected instance(s)")
+            if killed:
                 time.sleep(3)
             relaunch()
             for _ in range(40):

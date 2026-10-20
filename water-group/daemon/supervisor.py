@@ -29,6 +29,11 @@ LOG = ROOT / "water-group" / "logs" / "wg-supervisor.log"
 STALE_AFTER = int(os.environ.get("TULPA_WG_STALE", "300"))
 PY = sys.executable
 
+# The supervisor has no console of its own, so every child it starts would get a
+# fresh console window. Restarts happen on their own schedule, which made this
+# the most random-looking black box in the stack.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 # app.py is started first in spirit, but db_keeper has no dependency and opening it
 # early means the WAL sidecar is already pinned by the time the backend touches it.
 CHILDREN = {
@@ -69,6 +74,7 @@ def spawn(name, script):
         return subprocess.Popen(
             [PY, str(script)], cwd=str(ROOT), env=sanitized_env(),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=NO_WINDOW,
         )
     except Exception as exc:  # noqa: BLE001
         log(f"{name} spawn failed: {exc}")
@@ -104,7 +110,22 @@ def supervise(procs):
         time.sleep(15)
 
 
+def silence_crash_dialogs():
+    """A crashed child would otherwise leave a "has stopped working" box on the
+    desktop until someone dismisses it. Error mode is inherited, so setting it once
+    here covers every child this process will ever start."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002)  # FAILCRITICALERRORS | NOGPFAULTERRORBOX
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main():
+    silence_crash_dialogs()
     log(f"supervisor start, pid={os.getpid()}")
     return supervise(start_all())
 

@@ -10,6 +10,19 @@ import requests
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+# A console child of a console-less parent gets a brand-new console window on
+# Windows, which is the black box that flashes whenever the watchdog shells out.
+# Every probe here runs from a background daemon with no console, so each one
+# would otherwise pop a window; CREATE_NO_WINDOW suppresses it without touching
+# the redirected stdout we actually read.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# Win32 SetErrorMode flags. SEM_NOGPFAULTERRORBOX is the one that suppresses the
+# "X has stopped working" dialog; SEM_FAILCRITICALERRORS keeps the related
+# critical-error box away too.
+SEM_FAILCRITICALERRORS = 0x0001
+SEM_NOGPFAULTERRORBOX = 0x0002
+
 # When launched as a script (`python water-group/bootstrap.py`) this file is
 # __main__, so the repository root is not on sys.path yet and the bridge
 # package cannot be found. Importing through the bridge is what keeps every
@@ -47,7 +60,27 @@ def get_python_exe():
         return str(venv_py)
     return sys.executable
 
+def silence_crash_dialogs():
+    """Stop Windows from putting a "QQ has stopped working" box on the desktop.
+
+    Every crash of an injected instance used to leave one of these behind, and
+    because the watchdog re-injects on its own schedule the boxes piled up faster
+    than anyone dismissed them -- ten were sitting on screen at once. Error mode
+    is inherited by child processes, so setting it here covers QQ and everything
+    it starts, while leaving the user's own applications reporting errors as usual.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def start_process_detached(cmd, cwd=None, log_name=None, env=None):
+    silence_crash_dialogs()
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
@@ -235,24 +268,43 @@ def kill_stale_instances():
     processes then fight, crash in a loop, and QQ dies with "GPU process isn't
     usable", which reads like a network outage from the outside.
 
-    Only instances carrying `--enable-logging` are touched: that switch is added
-    by NapCatWinBootMain, so a personal QQ sharing the same install is left alone.
+    Identification used to be `--enable-logging`, because that was the one switch
+    NapCatWinBootMain injected. Rewriting that literal to `--disable-gpu` (to dodge
+    the GPU crash loop) silently broke the match: nothing was recognised, nothing
+    was killed, and ten orphan instances piled up at ~190 MB each while every
+    watchdog restart added another one.
+
+    `-q <uin>` is the durable marker. The launcher always appends it for quick
+    login, and a personal QQ started from the desktop carries no switches at all,
+    so this still leaves the user's own client alone.
     """
+    account = configured_account()
+    if account:
+        match = f"* -q {account}*"
+    else:
+        # Without a configured account there is no safe identity to match on, and
+        # guessing would risk killing the user's own client. Leave everything up.
+        return 0
+
     script = (
         "Get-CimInstance Win32_Process -Filter \"Name='QQ.exe'\" | "
-        "Where-Object { $_.CommandLine -like '*--enable-logging*' } | "
+        f"Where-Object {{ $_.CommandLine -like '{match}' }} | "
         "ForEach-Object { $_.ProcessId }"
     )
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                             capture_output=True, timeout=30)
+                             capture_output=True, timeout=30, creationflags=NO_WINDOW)
         pids = [line.strip() for line in out.stdout.decode("utf-8", "ignore").splitlines() if line.strip().isdigit()]
     except Exception:
         return 0
     killed = 0
     for pid in pids:
         try:
-            subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True, timeout=15)
+            # /T takes the whole tree: killing only the main process leaves the
+            # renderer and network utilities running against the same profile,
+            # which is how a "cleaned" instance kept holding locks.
+            subprocess.run(["taskkill", "/F", "/T", "/PID", pid],
+                           capture_output=True, timeout=15, creationflags=NO_WINDOW)
             killed += 1
         except Exception:
             continue

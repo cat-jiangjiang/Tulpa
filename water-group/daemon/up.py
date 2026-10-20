@@ -39,6 +39,10 @@ DETACHED = 0x00000008 if os.name == "nt" else 0
 
 PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 
+# Same reason as supervisor: this process can be started without a console, and
+# then every probe it shells out to opens one.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def strip_proxy():
     """The host proxy intercepts loopback and NapCat only answers on 127.0.0.1.
@@ -132,7 +136,8 @@ def _match_pids(pattern, exclude=None):
               "ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }")
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
-                              "-Command", script], capture_output=True, timeout=30)
+                              "-Command", script], capture_output=True, timeout=30,
+                             creationflags=NO_WINDOW)
     except Exception:  # noqa: BLE001
         return []
     pairs = []
