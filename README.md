@@ -1,172 +1,312 @@
-![Tulpa](doc/assets/title.png)
+# 群友机器人
 
-# Tulpa
+**把 AI Agent 塞进 QQ 群，让它当个群友，而不是当客服。**
 
-**把 QQ / 微信资料接入几乎所有的桌面版 Agent，也让它在 QQ 里成为群友。**
+这是 [Tulpa](https://github.com/fumingyang2004/Tulpa) 的一个分支。上游做的是本地聊天资料汇聚 + MCP 桥接的桌面产品——导入历史、读微信、Linux 终端版、桌面安装包那一整套。这个分支把这些原样留在仓库里不动，只把其中一条路走通、打磨到能长期跑：
 
-[Linux 终端版](README.linux.md) · [下载](#下载) · [快速开始](#快速开始) · [Agent 配置教程](doc/AGENT_SETUP.md) · [使用场景](#使用场景) · [完整文档](#常见问题与文档)
+> Agent 常驻一个 QQ 群，被叫到就回，没被叫就潜水看别人聊，顺手把群友的脾气记下来。
 
-Tulpa 在本机整理聊天、图片和文件，让 Agent 按你授权的范围查资料、追溯消息，或带着自定义人格参与 QQ 群聊。已有 Agent 选 MCP 轻量版；想直接在 Tulpa 里提问，选完整版。
+默认触发模式是 `mention_only`：只在被 **@**、被**引用**、或者正文里出现它的名字时才醒。群友不会每条消息都接话，这里也一样。
 
-**桌面发行版：Windows 10 / 11 x64；Linux：x86_64 / ARM64 终端源码版。** 微信支持读取、回复草稿与复制，不能发送。QQ 持续群聊需要独立运行的 OneBot 服务、相应授权，以及持续执行的外部 Agent。
+## 和上游的区别
 
-## Linux 终端版
-
-在 Linux 安装 Python 3.13 或 `uv` 后，进入源码目录运行：
-
-```sh
-./tulpa
-```
-
-首次自动安装依赖、启动后台并打开 TUI；退出界面后后台继续运行。
-提供 CLI / TUI、原有业务 API、MCP、Linux 原生读取器、可选 OCR / 语音 / Office 组件、
-用户级 systemd 服务，以及 SL 本地托管和 Docker 托管。没有桌面时可用浏览器中的 noVNC 扫码。
-多实例各有独立端口、账号数据、SL 容器和 MCP 授权；新增私聊、图片导入、SL 扩展工具及授权编辑。
-
-安装与限制见 [Linux 教程](README.linux.md)、[使用说明](doc/LINUX_TERMINAL.md)；
-开发分工见 [模型贡献记录](doc/LINUX_CONTRIBUTORS.md)。下方桌面下载和启动教程继续适用于 Windows。
-
-## 使用场景
-
-下面是可以交给 Agent 的请求示例，实际能力取决于资料、授权、模型和客户端。
-
-### 让小鲸鱼来水群
-
-> 先列出可用人格和允许的 QQ 群，核对“我的测试群”后，用小鲸鱼持续聊天，直到我停止。接得上话再说，不必每条都回复。
-
-随包提供小鲸鱼（`little_whale`）、小鲸鱼2号（`little_whale_v2`）和龙娘（`dragon_girl`，测试版），也能用 Markdown 写自己的角色。支持按语境接话、原生 @ 与引用；授权后可看图、发送和收藏表情、给消息贴表情回应，保留理解笔记供后续会话选用。
-
-持续聊天会在当前已授权的机器人账号和群里积累群友表达与黑话，潜水时也能学习；同账号同群重开可接续积累。人物卡与学习参考分开，模型可以选择本轮不用。[聊天节奏](doc/MCP_CHAT_TURNS.md) · [实时学习](doc/MCP_LANGUAGE_LEARNING.md)
-
-人格卡只改变表达，不会替换底层模型；发言和表情使用由 Agent 决定。详见 [人格教程](doc/MCP_CHAT.md)与[表情链路](doc/MCP_STICKERS.md)。
-
-视频链接：[点击这里查看哔哩哔哩视频](https://www.bilibili.com/video/BV16jHL6AE5z)
-
-### 找回聊过的资料和文件
-
-> 帮我找我的群里的一些我需要的附件，核对时间，并标出消息来源。
-
-按关键词、人物、会话和日期检索，再展开上下文。图片、语音和文件按需读取；轻量版可经 OneBot 下载 QQ 群原文件，交给同机 Agent 自己的文件工具阅读。
-
-![Tulpa](doc/assets/file_finding.png)
-
-### 把消息整理成有出处的总结
-
-> 总结项目群这周确定的分工和待确认事项，把每项对应的原话列出来。
-
-从消息和文件中整理结论，保留可回查的来源。完整版还提供回复草稿、会话记忆、关注卡和持续调查工作区；完整能力见[功能清单](doc/FEATURES.md)。
-
-## 为什么用 Tulpa
-
-- **复用熟悉的 Agent**：Tulpa 负责资料读取、检索和授权，外部 Agent 负责理解与任务执行；只用 MCP 无需在 Tulpa 另配模型 API Key。
-- **范围由你决定**：按平台、会话、日期开放资料，写操作另行授权，每个客户端的连接可单独撤销。
-- **查得到，也能回头核对**：从结论展开上下文、查看原文，按需取图片和文件，不必反复复制聊天。
-
-已接入以下客户端：
-
-<img src="doc/assets/agents/openai.png" width="24" height="24" alt="Codex"> [Codex](doc/AGENT_SETUP.md#codex) ·
-<img src="doc/assets/agents/claude.png" width="24" height="24" alt="Claude Code"> [Claude Code](doc/AGENT_SETUP.md#claude-code) ·
-<img src="doc/assets/agents/deepseek.png" width="24" height="24" alt="DeepSeek Harness"> [DeepSeek Harness](doc/AGENT_SETUP.md#deepseek-harness) ·
-<img src="doc/assets/agents/antigravity.svg" width="24" height="24" alt="Antigravity"> [Antigravity](doc/AGENT_SETUP.md#google-antigravity) ·
-<img src="doc/assets/agents/workbuddy.png" width="24" height="24" alt="WorkBuddy"> [WorkBuddy](doc/AGENT_SETUP.md#workbuddy)
-
-<details>
-<summary>客户端实测范围</summary>
-
-- **Codex / DeepSeek Harness**：已验证聊天查询、图片和文件读取，以及授权测试群发言、修改群名并恢复。
-- **Claude Code**：已接入并由用户在本机确认功能正常，使用原生 HTTP MCP 与 Bearer Token。
-- **Antigravity**：已验证消息查询和图片理解；验收仅开放只读权限，尚未实测持续群聊、发送与群管理。
-- **WorkBuddy**：已接入并由用户确认跑通；调用记录覆盖消息、图片、文件、群资料及人格发现。
-
-客户端的识图、工具审批与持续运行机制不同。详见 [Agent 教程](doc/AGENT_SETUP.md)和[验证记录](doc/VALIDATION.md)。
-
-</details>
-
-## 下载
-
-| 版本 | 适合你，如果你想… | 下载 |
+| | 上游 Tulpa | 这个分支 |
 | --- | --- | --- |
-| **MCP 轻量版** | 使用已有 Agent 查资料或参与 QQ 群聊 | [0.5.6 ZIP](https://github.com/fumingyang2004/Tulpa/releases/download/v0.5.6/Tulpa-MCP-0.5.6-win-x64.zip) |
-| **Linux 终端版** | Linux x86_64 / ARM64，CLI/TUI、MCP 及可选内置模型 | [0.5.6 tar.gz](https://github.com/fumingyang2004/Tulpa/releases/download/v0.5.6/Tulpa-0.5.6-linux.tar.gz) |
-| **完整版（上一版）** | 在 Tulpa 内提问，使用回复、记忆和工作区；也能接外部 Agent | [0.5.5 ZIP](https://github.com/fumingyang2004/Tulpa/releases/download/v0.5.5/Tulpa-0.5.5-win-x64.zip) |
+| 定位 | 聊天资料汇聚 + MCP 中间件 | 让 Agent 长期驻留 QQ 群 |
+| 入口 | 桌面 GUI，点选配置 | 一个常驻进程栈，Agent 用命令行读事件、写回复 |
+| 谁在说话 | 你在 Tulpa 里提问 | Agent 以固定人格在群里发言 |
+| 历史数据 | 需要先导入 | 不需要，直接吃 OneBot 实时事件 |
+| 主要难点 | 授权范围与数据完整性 | 不崩、不失聪、不重复回、不说客服腔 |
 
-**0.5.6 本次发布 MCP 轻量版与 Linux 终端版，Windows 完整版维持 0.5.5。** Windows 发行包自带 Python；完整版内置 Harness、本地 OCR / 语音 / Office 解析与固定 WebView2，轻量版使用系统 WebView2 Evergreen Runtime，语音模型按需安装。[版本区别](doc/MCP_LITE.md) · [最新发布](https://github.com/fumingyang2004/Tulpa/releases/latest) · [0.5.6 更新说明](doc/releases/0.5.6.md)
+`water-group/` 整个子系统是本分支新增的，上游没有。它建立在两个上游组件之上：MCP 后端（`chatlocal/`）和 OneBot 11 网关。人设卡体系与群友记忆引擎由本分支实现。
 
-需要 **.NET Framework 4.8**。下载 ZIP 后完整解压到可写目录，打开 `Tulpa/Tulpa.exe`；不要从压缩包直接运行。**`Source code` 不是安装包，两版不要混装。** QQ / 微信客户端、模型服务及可选 OneBot 服务需自行准备。
+## 它现在能做什么
 
-**老用户升级：** 按[保留数据升级教程](doc/UPGRADE.md)检查、备份并更新原目录，无需重新导入。自改的同名随包人格先另存；升级后仍打开原目录 EXE，并重连 MCP。
+- **被 @ 就回，带原生引用**。每条回复引用触发它的那条消息，用的是 OneBot `reply` 消息段，不是把文字拼在前面。
+- **按花名 @ 人**。正文里写 `@{时月}` 就是真的 @，会变蓝、会响。四层解析（QQ 号 → 本群名片 → 档案别名 → 近似匹配），同名时报候选而不是替你选一个。
+- **连着几条 @ 不会吞**。监听退出到重新挂上之间来的 @ 会落盘，不会因为「看起来像回过了」被静默过滤掉。
+- **闲时沉淀群友画像**。没被 @ 的时候群里照样在聊，消息全部入库；攒够了就提炼一遍——谁爱玩什么梗、谁在群里是什么角色、谁换过名字。
+- **人格卡热切换**。`water-group/personas/` 下放 Markdown，换个文件就是换个人。
+- **崩了会自己爬起来**。守护进程探的是 OneBot 的真实应答（`get_login_info`），不是端口——QQ 那种「端口还在但不应答」的假活能被识别，约 8 秒重新上线。
+
+目前只发**文字 + @ + 引用**。表情、图片、戳一戳这些还留在上游的 MCP 工具层，命令行这条路没接。
 
 ## 快速开始
 
-### SnowLuma 自动配置
+### 你需要
 
-自行下载并解压 [SnowLuma v1.14.22 Windows x64 完整版](https://github.com/SnowLuma/SnowLuma/releases/tag/v1.14.22)，在 Tulpa 输入文件夹路径，勾选授权，点击 **载入并配置**。文件检查和配置一次完成，已有连接自动检测并导入；新目录自动初始化、选择空闲端口、配置 HTTP/WS 并核对 QQ。多 QQ 时选择目标即可，无需终端、手填 Token 或设置管理密码。
+- Windows 10 / 11 x64
+- Python 3.13
+- 一个能登录的 QQ 账号，以及一个 OneBot 11 实现（推荐 [SnowLuma](https://github.com/SnowLuma/SnowLuma) 或 NapCat），开 **HTTP + 正向 WebSocket**
+- 一个愿意干这活的 Agent（能跑命令、能读文件就行）
 
-已有可用节点会自动检测并导入，保留原配置。Tulpa 不下载、复制或附带 SnowLuma，不扩大 MCP 授权。[操作与恢复](doc/SNOWLUMA_MANAGED.md) · [验证范围](doc/SNOWLUMA_MANAGED_VALIDATION.md)
-
-### 我要 QQ 水群
-
-**无需先导入整库历史。** 这条路径直接接收 OneBot 实时事件。
-
-1. 启动 QQ 和 Tulpa；载入自行下载的 SnowLuma 文件夹并同意自动配置，或导入已有 OneBot 连接。持续群聊需要 **HTTP + 正向 WebSocket**。[连接教程](doc/SNOWLUMA_SETUP.md)
-2. 在 **连接外部 Agent**（或 **外部 Agent / MCP**）选择 QQ，在会话来源选择 **QQ 当前群聊 · 无需导入**，只选测试群；截止日期留空以接收未来消息。
-3. 开放持续群聊和发送权限，按需加看图、表情发送或收藏。创建连接、检测工具，再按 [Agent 教程](doc/AGENT_SETUP.md)配置并重连客户端。
-4. 在外部 Agent 的**专用对话**中使用上面的水群示例。想换龙娘，选择 `dragon_girl`。新人格放进当前安装目录的 `chatlocal/prompts/mcp_chat/`，重新列出即可发现。
-
-保持 QQ、OneBot、Tulpa 和外部 Agent 运行。宿主结束回合、达到预算、退出或休眠后，Tulpa 不会自行继续推理。可在 Tulpa 点 **停止聊天 / 停止全部群聊**；已发出的消息不会因此撤回。改过人格后，停止并重新开启会话才会采用新设定。
-
-### 我要查 QQ / 微信历史
-
-1. 登录本机 QQ / 微信，在 **数据与同步 → 本机账号**核对账号，再选会话和日期读取。可以从少量近期消息开始。
-2. **用外部 Agent**：创建独立 MCP 连接，选择资料范围和需要的图片、文件、语音权限，检测成功后按[教程](doc/AGENT_SETUP.md)接入。
-3. **用内置聊天**：选择完整版，在 **模型与连接**填写 API 地址、API Key 和模型名称，回到对话页提问。
-4. 从上面的资料查询或总结示例开始，用 **浏览聊天记录**核对原文。
-
-本地历史查询和草稿不需要 OneBot。读取范围受客户端版本、账号、权限及本机缓存影响，无法保证找回未取得的历史；见[数据读取](doc/IMPORTS.md)与[实时摄取](doc/LIVE_INGESTION.md)。
-
-## 隐私与权限
-
-- **资料保存在本机，不等于完全离线。** 必要消息片段会进入你选择的模型服务；启用识图时也会发送所选图片。
-- 看图、发送、收藏和群管理分别授权，默认关闭、可撤销。**MCP 的发送和群管理勾选后是持续授权，调用直接执行，不会逐条回到 Tulpa 审批。**
-- 普通 **帮我回复**先生成可编辑草稿，批准后才发送 QQ 文本；微信只能草稿和复制。
-- 不要分享使用过的整个安装目录，尤其是 `data/`、`imports/`、`.env`、Token 和私人诊断。撤销连接不能收回已交给客户端的内容；MCP 范围限制也不是整台电脑的文件隔离。
-
-## 常见问题与文档
-
-**能一直后台水群吗？** 持续群聊依赖外部 Agent 保持执行。托盘可保留 Tulpa 服务，但内置 Harness 不会自动变成水群机器人。
-
-**连上了却读不到资料？** 先核对来源账号、导入状态、授权范围和日期，再实际调用工具验证；配置成功不代表数据可读。看 [连接验证与排错](doc/AGENT_SETUP.md#重启与常见问题)。
-
-**模型的总结可靠吗？** 检索只覆盖已取得且已授权的资料，引用可回查不代表解释一定正确，重要结论请核对原文。
-
-- 接入与群聊：[Agent 教程](doc/AGENT_SETUP.md) · [MCP 权限](doc/MCP.md) · [OneBot](doc/SNOWLUMA_SETUP.md) · [人格](doc/MCP_CHAT.md) · [表情](doc/MCP_STICKERS.md)
-- 资料与调查：[文件](doc/ARTIFACTS.md) · [语音](doc/VOICE.md) · [调查与证据](doc/INVESTIGATION.md) · [工作区](doc/WORKSPACES.md) · [会话记忆](doc/TULPA.md)
-- 功能与维护：[完整功能](doc/FEATURES.md) · [回复助手](doc/REPLY_COPILOT.md) · [群管理](doc/GROUP_MANAGEMENT.md) · [升级](doc/UPGRADE.md) · [安全报告](doc/SECURITY.md)
-
-## 参与开发
-
-<details>
-<summary>从源码运行与贡献</summary>
-
-需要 Windows x64、Python 3.13 和 Git，在 PowerShell 执行：
+### 1. 装依赖
 
 ```powershell
-git clone https://github.com/fumingyang2004/Tulpa.git
+git clone https://github.com/ID-VerNe/Tulpa.git
 cd Tulpa
 .\setup.ps1
-.\start.ps1
 ```
 
-打开 <http://127.0.0.1:7860/?desktop=1>。首次 setup 会联网安装依赖与读取模块；浏览器入口用于开发和测试。
+`setup.ps1` 会建好 `.venv` 并装齐依赖。之后新增依赖用 `uv`，别拿 `pip` 往里混装。
 
-[贡献指南](doc/CONTRIBUTING.md) · [桌面构建](doc/DESKTOP.md) · [验证说明](doc/VALIDATION.md)
+### 2. 配 OneBot
 
-</details>
+复制 `water-group/config.example.json` 为 `water-group/config.json`，填这几项：
+
+```json
+{
+  "onebot_http_url": "http://127.0.0.1:43000",
+  "onebot_token": "你的 Token",
+  "self_account": "机器人 QQ 号",
+  "self_names": ["小鲸鱼", "鲸鱼"],
+  "groups": {
+    "群号": {
+      "name": "群名",
+      "persona": "little_whale",
+      "trigger_mode": "mention_only"
+    }
+  }
+}
+```
+
+`self_names` 是「别人不 @ 你、只是提到你的名字」时也会唤醒的关键词。填几个群里真会用的叫法。
+
+`config.json` 在 `.gitignore` 里，不会被提交——但它里面有 Token 和群号，别手动往仓库里塞。
+
+### 3. 起栈
+
+双击 `water-group/start-bot.pyw`。
+
+它会按顺序拉起 NapCat → 后端 → 采集与保活守护，然后进入守护循环**永不退出**。第一次冷启动大约需要：NapCat 注入 65 秒、后端起端口 20 秒、采集器建立会话 20 秒。这段时间看到「离线 / 未建立」是正常的。
+
+它是幂等的：端口已经在就什么都不做，直接退出。输出写在 `water-group/logs/launcher.log`。
+
+> **不要**从 Agent 的终端里直接跑 `up.py`。某些 Agent 的沙箱会给子进程注入 DLL，注入会一路继承到 QQ，QQ 大约 20 秒后必定崩溃，然后保活进程无限重拉。`.pyw` + explorer 启动的整条链是干净的。`bootstrap.py` 检测到注入会直接 `exit 2` 拒绝启动。
+
+### 4. 让 Agent 接管
+
+对 Agent 说一句：
+
+> 在群 123456789 挂机水群
+
+它会去读 `AGENTS.md` 的 §0 和 `.agents/rules/water_group.md`，那两份是给 Agent 看的操作手册，比这份 README 细得多。
+
+## 日常命令
+
+状态都在 `.tmp/`（可用环境变量 `TULPA_WG_STATE` 改目录）。
+
+```bash
+# 只读复查：NapCat / 后端 / 守护 / 监听 / 最近唤醒
+.venv/Scripts/python.exe water-group/daemon/up.py --status
+
+# 挂监听。只活一轮，WAKE 后必须重挂
+.venv/Scripts/python.exe water-group/daemon/listen.py --timeout 300
+
+# 看谁 @ 了我
+.venv/Scripts/python.exe water-group/daemon/reply.py --list
+
+# 回一条（自动查消息编号 + 原生引用 + 记账）
+.venv/Scripts/python.exe water-group/daemon/reply.py 1667 "喜欢，但猫不搭理我"
+```
+
+`up.py --status` 长这样：
+
+```
+NapCat    : 在线 (10001 小鲸鱼)
+后端      : 在线  (47860 / 48777)
+守护      : 运行中 pid=56640  心跳 21s 前（wait 周期 170s，正常）
+监听      : 已挂 pid=61208
+会话      : e200c0d5...
+游标      : 1667   事件 182 条
+最近唤醒  :
+  id=1664 21:10:46 [已回] [at] 群友A: @10001 还在吗
+  id=1667 21:15:31 [待回] [at] 群友B: @10001 你喜欢猫嘛？
+```
+
+**`监听 : 未挂` 是最要命的一行。** 消息照收、照落盘，但没有任何进程把它变成唤醒信号，表现出来就是「发了消息没反应」。会话中断、栈重启、上下文压缩之后都要重挂。
+
+### 回复的几种姿势
+
+```bash
+# 带 @（花名必须写在花括号里）
+reply.py 1667 "@{时月} 出来一下"
+
+# 正文之外单独 @，可重复
+reply.py 1667 "学废了" --at 班味鹅 --at 时月
+
+# 只查这个名字对应谁，不发
+reply.py --who 时之锁
+
+# 一波连发用一条答完，顺带记多条账
+reply.py 1664 "别急，都在" --also 1665 --also 1666
+
+# 回完就地接着等（必须放后台跑）
+reply.py 1664 "在的" --wait 240
+```
+
+`--wait` 把「回复 + 重挂」合成一次调用，空窗从一整轮思考压到几百毫秒。前台跑会被工具超时砍掉——消息其实发出去了，只是等待被打断。
+
+## 它是怎么工作的
+
+### 常驻栈
+
+```
+explorer.exe
+└─ water-group/start-bot.pyw          .pyw，无控制台，幂等
+   └─ water-group/daemon/up.py        常驻，兼任总监护
+      └─ supervisor.py                拉起并重启下面全部
+         ├─ app.py                    后端 47860 / MCP 48777
+         ├─ collector.py              常驻 wait_chat_messages，消息先落盘
+         ├─ db_keeper.py              钉住 SQLite WAL 边车文件
+         └─ watchdog.py               NapCat / QQ 保活
+            └─ NapCatWinBootMain → QQ.exe
+```
+
+端口：NapCat OneBot `43000` / `43001`，后端 `47860`，MCP `48777`。
+
+为什么要把「等消息」从 Agent 的工具调用里挪出来：MCP 长轮询一旦超时或断线，监听就断了，Agent 还在傻等。现在等消息和保活都在独立进程里，Agent 只负责**读事件、写回复**两件事。
+
+### 一次唤醒的完整链路
+
+1. `collector.py` 常驻 `wait_chat_messages`，把每条消息追加进 `.tmp/wg_events.jsonl`，按 event id 去重。
+2. 服务端先过滤一遍：消息段里有 `at` 且指向机器人、有 `reply` 且引用的是机器人自己发的、或者正文命中 `self_names`。
+3. `listen.py` 在静默里轮询这份流水，命中就打印 `WAKE` 并**退出**——它设计上只活一轮，让 Agent 能观察到「有活干」这个事实。
+4. Agent 跑 `reply.py`，查消息编号 → OneBot 直发带引用 → 写已回账本 `.tmp/wg_replied.jsonl`。
+5. 回完立刻重挂监听，或者用 `--wait` 就地等。
+
+### 为什么引用不走 `send_chat_reply`
+
+`plan_chat_reply` 只接受**当前批次**里的 `target_event_id`，而群里每来一条新消息就开一个新批次。等 Agent 写好正文，触发它的那条通常已经落在旧批次里了——此时 plan 要么直接 `target_not_in_batch` 失败，要么改投到最新那条、把引用挂到别人头上。
+
+所以引用改走 OneBot 原生 `reply` 消息段，用 collector 已经存下的 `onebot_message_id`，跨多少批次都不受影响。plan 路径保留为兜底。
+
+### 按花名 @ 人
+
+正文里的 `@{花名}` 会被换成 `{"type":"at","data":{"qq":...}}` 消息段。**必须带花括号**：群里正文的「@时月」是普通文字，真正的 @ 是消息段。混为一谈会把随口一提变成一次点名。
+
+解析顺序：
+
+1. 纯数字 → 直接当 QQ 号（唯一不会歧义的输入）
+2. **本群名片 / 昵称精确**
+3. 档案（主名 / 别名）精确
+4. 本群名片近似 → 档案近似（单字不做近似，太容易撞）
+
+名片排在档案前面，因为「花名」在群里最直白的读法是名片；档案兜住改名前的老叫法和只有熟人知道的外号。
+
+**同名就报，不猜**。`--who momo` 会列出 3 个 momo，`--who 时之` 会列出两张撞车的名片。@ 错人比漏 @ 更像一次失误，所以歧义一律降级成文字。解析不出来也不拒发，名字原样以 `@某某` 文字送出。
+
+带 @ 的消息**只能走 OneBot**：`send_chat_reply` 只吃纯文本，会把 at 段静默降级成文字。所以一旦发现 at 段就强制走 OneBot，OneBot 不可用时直接 `SEND_FAILED`，不会退化成一条没有 @ 的消息。
+
+### 连发的 @ 不会丢
+
+群里一分钟内连发三条 @ 是常态，而监听在拿到 `WAKE` 那一刻就退出了。这个窗口里来的 @ 不会丢，但以前会被「已回」误判吞掉。
+
+根因是判定过宽：老逻辑的兜底是「这条之后只要出现过自己的消息就算回过了」。回第 1563 条的那条回复落在 1564 之后，于是 1564 被记成已回——`--list` 显示 `[已回]`，监听也把它滤掉，群里看到的就是「@ 了没反应」。
+
+现在按账本首条时间戳划线：比它新的事件**只认账本**，兜底仅对账本建立之前的老消息生效。回归测试在 `scripts/check_wake_ledger.py`，四条断言钉住这个边界。
+
+### 闲时沉淀群友画像
+
+没被 @ 的时候群里照样在聊，`chat_inbox` 里一条不落——Tulpa 先把每条消息入库，再决定要不要唤醒。素材一直都在，只是没人整理。
+
+```bash
+dossier.py --check              # 该提炼了吗（exit 0 = 该，3 = 还不用）
+dossier.py --dump 60            # 取一批素材，最早的优先
+dossier.py --digest             # 规则版消化：纯关键词，不调模型
+dossier.py --mark --through <id> # 推游标
+```
+
+触发条件在 `config.json` 的 `dossier` 段：攒够 `burst_messages`（默认 80）直接触发；或者闲置超过 `idle_minutes`（默认 20）且攒了 `min_messages`（默认 25）。
+
+两层：`--digest` 走关键词打标，零成本，每次超时都该跑；`--dump` → 提炼 → `consolidate_chat_memory` → `--mark` 是模型版，质量高但贵，只在 `--check` 说该做时才做。
+
+群友记忆只通过 MCP 工具维护（`query_member_dossier` / `update_member_dossier` / `consolidate_chat_memory`），**不要直连 SQLite**。
+
+### 人格卡
+
+`water-group/personas/` 下是 Markdown，随包带 `little_whale`、`little_whale_v2`、`dragon_girl`，`template.md` 是骨架。写完把 `config.json` 里目标群的 `persona` 指过去。
+
+人格卡只改变表达，不替换底层模型。核心要求写在模板里：1~10 字短句、打字感、不换行、禁客服腔、禁排比升华、禁括号内心戏。
+
+## 目录结构
+
+```
+water-group/
+├── start-bot.pyw        唯一启动入口（.pyw，无控制台，幂等）
+├── bootstrap.py         只读自检；检测到沙箱注入会拒绝启动
+├── config.example.json  配置样板
+├── daemon/              常驻进程与命令行工具
+│   ├── up.py            整栈入口 + 总监护 + --status / --stop
+│   ├── supervisor.py    拉起并重启子进程
+│   ├── collector.py     常驻等消息，先落盘
+│   ├── watchdog.py      QQ 保活（探真实应答，不探端口）
+│   ├── db_keeper.py     钉住 SQLite WAL
+│   ├── listen.py        监听（只活一轮）
+│   ├── watch.py         阻塞式等唤醒
+│   ├── reply.py         回复：引用 / @ / 记账 / --wait
+│   └── dossier.py       群友画像沉淀
+├── memory_engine.py     群友记忆与画像
+├── memory_commands.py   指令语法解析
+├── memory_format.py     L1 画像卡渲染
+├── sync_groups.py       群列表 / 名片同步
+├── sync_personas.py     人格卡同步
+├── personas/            人格卡
+├── stickers/            表情库
+└── logs/                运行日志（不入库）
+```
+
+运行时会生成的东西（都在 `.gitignore` 里）：`data/`、`imports/`、`.tmp/`、`water-group/config.json`、`water-group/status.json`、`water-group/logs/`。
+
+## 状态文件
+
+| 文件 | 含义 |
+| --- | --- |
+| `wg_events.jsonl` | 消息流水，每行一条，`id` 递增 |
+| `wg_state.json` | 最近一次 wait 的返回，含 `input_batch.id` |
+| `wg_session.txt` | 会话 id |
+| `wg_ack.txt` | 已落盘游标（**不是**已回复游标） |
+| `wg_replied.jsonl` | 已回账本，发送成功时写 |
+| `wg_watch.txt` | `watch.py` 的扫描游标 |
+| `wg_heartbeat` | 采集器最后一次完成循环的时间，供总监护判活 |
+
+## 踩过的坑
+
+这些都不是理论问题，是真让机器人哑掉过的：
+
+| 现象 | 原因 |
+| --- | --- |
+| 桌面每 20~40 秒弹一个 `QQ has stopped working` | 栈是从带 DLL 注入的沙箱里起的，注入继承到 QQ，delay-load 找不到导出就自杀（`0xC06D007F`）。改用 `start-bot.pyw` 从 explorer 起 |
+| `--stop` 之后重启，NapCat 离线、启动器毫无反应 | `--stop` 没停干净，残留 `app.py` / `collector.py` 占着 47860 / 48777，启动器按端口判幂等直接退出。先 `netstat -ano` 确认端口真空 |
+| 反复 `资料读取失败` | SQLite WAL 竞态，`db_keeper.py` 没在跑 |
+| `@ 了没反应`，`--list` 却显示 `[已回]` | 账本边界问题，见上面「连发的 @ 不会丢」 |
+| `@ 了但群里没变蓝` | 三种：名字没解析（留成了文字）、那人不在本群（`--who` 会说）、或者消息走了 `send_chat_reply`。用 `get_msg` 回读，只有 `[CQ:at,qq=...]` 才算数 |
+| QQ.exe 越攒越多 | 杀进程时没带 `/T`，只杀了主进程，renderer 和 network utility 还在占 profile |
+| 守护日志显示心跳但进程是死的 | `up.py --status` 的「守护」行在 supervisor 死后仍会显示陈旧心跳，判据要看同一行的「运行中 / 未运行」 |
+
+排查先看这三处日志：
+
+```bash
+tail -20 water-group/logs/wg-supervisor.log    # 谁被重启了
+tail -20 .tmp/wg_collector.log                 # 采集是否在报错
+tail -20 water-group/logs/napcat-watchdog.log  # QQ 是否被反复重注入
+```
+
+## 已知限制
+
+- **Agent 停止思考，机器人就静音。** 这是设计如此：回复是 Agent 写的，不是本地模型。宿主结束回合、退出、休眠之后，群里 @ 它不会有反应。想真正无人值守，得让 Agent 那边保持执行。
+- **只发文字。** 表情、图片、语音这些能力在 MCP 层，命令行这条路没接。
+- **`mention_only` 下不会主动接话。** 想让它参与闲聊，把 `trigger_mode` 改成 `natural`，噪音会一起上来。
+- **同名歧义在 `find_profile` 层没解决。** `reply.resolve_member` 会报候选，但 MCP 的 `query_member_dossier` 遇到歧义仍会静默选第一个。
+- **Windows only。** 保活逻辑是 Windows 进程模型写的，Linux 那份是上游的终端版，跟这条链无关。
 
 ## 许可与致谢
 
-Tulpa 自有代码采用 [MIT License](LICENSE)，第三方组件、模型与客户端遵循各自许可，见 [THIRD_PARTY.md](doc/THIRD_PARTY.md)。本项目不是腾讯官方产品，与 QQ、微信及模型服务商没有隶属关系。
+本项目自有代码采用 [MIT License](LICENSE)。不是腾讯官方产品，与 QQ、微信及模型服务商没有隶属关系。
 
-- [qq-bridge](https://github.com/Derpyu520/qq-bridge)：群聊行为与提示词设计参考；小鲸鱼基于其角色卡，由 Tulpa 维护者改编，保留来源和 MIT 许可。
-- [QQ-agent](https://github.com/K0nd1us/QQ-agent)：表情收藏、语义笔记、候选与用量反馈的设计参考；Tulpa 按自身授权和媒体校验机制独立实现。
-- [SnowLuma](https://github.com/SnowLuma/SnowLuma)：提供 QQ / OneBot 接入能力，需独立安装并遵循其许可。
+- [Tulpa](https://github.com/fumingyang2004/Tulpa)：本分支的上游，MCP 后端与 OneBot 网关来自这里。
+- [SnowLuma](https://github.com/SnowLuma/SnowLuma)：QQ / OneBot 接入，需独立安装并遵循其许可。
+- [qq-bridge](https://github.com/Derpyu520/qq-bridge)：群聊行为与提示词设计参考。
+- [QQ-agent](https://github.com/K0nd1us/QQ-agent)：表情收藏、语义笔记与候选反馈的设计参考。
+
+给 Agent 看的操作手册在 [`AGENTS.md`](AGENTS.md) 与 [`.agents/rules/water_group.md`](.agents/rules/water_group.md)；守护进程的设计细节在 [`water-group/daemon/README.md`](water-group/daemon/README.md)。
