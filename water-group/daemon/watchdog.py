@@ -123,6 +123,68 @@ def owner_pid():
     return None
 
 
+def crash_dialog_pids():
+    """PIDs of QQ processes showing a "QQ has stopped working" box.
+
+    This install is missing CrashSender.exe, so when QQ crashes its bundled
+    crashpad cannot hand the report off and instead opens a modal MessageBox.
+    Nobody dismisses it, so the process sits there forever holding the dialog --
+    which is what the black boxes on the desktop actually were.
+
+    The HTTP probe cannot see any of this: NapCat's node sidecar is a separate
+    process and keeps answering long after the QQ main has crashed. A dialog is
+    the only reliable sign that the instance behind the bridge is dead.
+    """
+    if os.name != "nt":
+        return []
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        u32 = ctypes.windll.user32
+        k32 = ctypes.windll.kernel32
+        found = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        def visit(hwnd, _lparam):
+            if not u32.IsWindowVisible(hwnd):
+                return True
+            length = u32.GetWindowTextLengthW(hwnd)
+            title = ctypes.create_unicode_buffer(length + 1)
+            u32.GetWindowTextW(hwnd, title, length + 1)
+            if "stopped working" in title.value or "已停止工作" in title.value:
+                pid = wintypes.DWORD()
+                u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                found.append(int(pid.value))
+            return True
+
+        u32.EnumWindows(visit, 0)
+        return found
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def is_our_instance(pid):
+    """Whether this pid is a QQ we injected, judged by its `-q <account>` switch.
+
+    The user's own QQ runs from the desktop with no arguments at all, so a crash
+    dialog belonging to it must be left alone -- killing their client because it
+    happened to crash would be far worse than a stray window.
+    """
+    import bootstrap
+
+    account = bootstrap.configured_account()
+    if not account:
+        return False
+    script = f"(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").CommandLine"
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                             capture_output=True, timeout=25, creationflags=NO_WINDOW)
+        return f"-q {account}" in out.stdout.decode("utf-8", "ignore")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def relaunch():
     import bootstrap
 
@@ -157,11 +219,29 @@ def main():
     fails = 0
     while True:
         try:
+            # Checked before the probe, and on a short cycle: a crashed instance
+            # still answers on the port through its sidecar, so health alone would
+            # never notice. Every second the dialog stays up is a second it is on
+            # the user's screen.
+            stuck = [pid for pid in crash_dialog_pids() if is_our_instance(pid)]
+            if stuck:
+                log(f"crash dialog from injected pid={stuck}, taking the instance down")
+                kill_injected_instances()
+                time.sleep(2)
+                relaunch()
+                for _ in range(40):
+                    time.sleep(2)
+                    if healthy():
+                        log("online after crash")
+                        break
+                fails = 0
+                continue
+
             if healthy():
                 if fails:
                     log(f"recovered after {fails} failed boot(s)")
                 fails = 0
-                time.sleep(10)
+                time.sleep(2)
                 continue
 
             # One missed probe means nothing: NapCat stops answering while it pushes
