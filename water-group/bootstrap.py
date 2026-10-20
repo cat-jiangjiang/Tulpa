@@ -132,12 +132,64 @@ def launch_napcat_direct(qq_exe, account=""):
     cmd = [str(NAPCAT_DIR / "NapCatWinBootMain.exe"), str(qq_exe), str(NAPCAT_DIR / "NapCatWinBootHook.dll")]
     if account:
         cmd.append(account)
+    cmd.extend(qq_extra_args())
     start_process_detached(cmd, cwd=str(NAPCAT_DIR), log_name="napcat.log", env=env)
+
+
+def qq_extra_args():
+    """Extra switches handed to QQ.exe, empty by default.
+
+    NapCatWinBootMain only understands the account argument: anything after it
+    makes the bootstrapper drop the `-q <uin>` quick-login and fall back to a QR
+    code, which then never completes on a headless box. Keep this empty unless a
+    future NapCat build is verified to forward switches.
+    """
+    raw = os.environ.get("TULPA_QQ_ARGS", "")
+    return [part for part in raw.split() if part]
+
+
+def kill_stale_instances():
+    """Kill QQ instances this launcher started before starting another one.
+
+    Every boot attempt spawns a QQ process. When a boot stalls — waiting for a QR
+    scan, for example — the old process stays alive, the next attempt adds one
+    more, and several instances end up sharing one user-data-dir. Their GPU
+    processes then fight, crash in a loop, and QQ dies with "GPU process isn't
+    usable", which reads like a network outage from the outside.
+
+    Only instances carrying `--enable-logging` are touched: that switch is added
+    by NapCatWinBootMain, so a personal QQ sharing the same install is left alone.
+    """
+    script = (
+        "Get-CimInstance Win32_Process -Filter \"Name='QQ.exe'\" | "
+        "Where-Object { $_.CommandLine -like '*--enable-logging*' } | "
+        "ForEach-Object { $_.ProcessId }"
+    )
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                             capture_output=True, timeout=30)
+        pids = [line.strip() for line in out.stdout.decode("utf-8", "ignore").splitlines() if line.strip().isdigit()]
+    except Exception:
+        return 0
+    killed = 0
+    for pid in pids:
+        try:
+            subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True, timeout=15)
+            killed += 1
+        except Exception:
+            continue
+    if killed:
+        time.sleep(4)
+    return killed
 
 
 def ensure_napcat():
     if is_port_open(43000) and is_port_open(43001):
         return True, "在线"
+
+    stale = kill_stale_instances()
+    if stale:
+        print(f"[启动] 已清理 {stale} 个残留 QQ 实例，避免多实例争用同一 user-data-dir")
 
     account = configured_account()
     bat_path = NAPCAT_DIR / "launcher-user.bat"
@@ -146,6 +198,7 @@ def ensure_napcat():
         cmd = ["cmd.exe", "/c", "launcher-user.bat"]
         if account:
             cmd.append(account)
+        cmd.extend(qq_extra_args())
         launcher = start_process_detached(cmd, cwd=str(NAPCAT_DIR), log_name="napcat.log")
         if wait_napcat_ports():
             return True, "启动成功并已连接"
