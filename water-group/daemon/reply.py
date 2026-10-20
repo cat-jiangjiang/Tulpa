@@ -88,7 +88,12 @@ def record(event_id, text):
 
 
 def plan(sid, batch, target, intent, quote):
-    """Returns a plan id, or None with a reason printed."""
+    """Returns (plan_id, final_target); plan_id is None when planning failed.
+
+    The final target can differ from the requested one when the batch rotated
+    mid-compose. The caller needs it to decide whether quoting still makes sense:
+    quoting a stranger's message to answer someone else reads as a mistake.
+    """
     for attempt in range(8):
         args = {"session_id": sid, "batch_id": batch, "action": "reply",
                 "expressions": ["text"], "intent": intent}
@@ -99,7 +104,7 @@ def plan(sid, batch, target, intent, quote):
         code = data.get("error_code") or ""
         print(f"  plan {attempt + 1}: state={state} code={code or '-'}")
         if state == "READY":
-            return data.get("plan_id")
+            return data.get("plan_id"), target
 
         if code in ("stale", "needs_refresh"):
             updated = data.get("updated_chat") or {}
@@ -108,24 +113,38 @@ def plan(sid, batch, target, intent, quote):
                 batch = new_batch
                 continue
             print("  no replacement batch in updated_chat")
-            return None
+            return None, target
+        if code == "target_not_in_batch":
+            # The batch rotated while we were composing: every new message forms a
+            # new batch, and only its own events are valid targets. The response
+            # names the ones that are, so adopt the newest and retry the same batch
+            # instead of re-reading the state file and losing another round.
+            allowed = data.get("valid_event_ids") or []
+            if allowed:
+                new_target = allowed[-1]
+                if new_target != target:
+                    print(f"  batch rotated, retargeting {target} -> {new_target}")
+                    target = new_target
+                    continue
+            print("  no valid target in this batch")
+            return None, target
         if code == "batch_expired":
             fresh = batch_id()
             if fresh and fresh != batch:
                 batch = fresh
                 continue
             print("  batch expired and no newer one is on disk; wait for the collector")
-            return None
+            return None, target
         if code == "source_unavailable":
             print(f"  NapCat is reconnecting, waiting {SOURCE_WAIT}s")
             time.sleep(SOURCE_WAIT)
             continue
         if code == "chat_rejected":
             print("  the session is held by another waiter; check `up.py --status`")
-            return None
+            return None, target
         print("  unhandled:", json.dumps(data, ensure_ascii=False)[:300])
-        return None
-    return None
+        return None, target
+    return None, target
 
 
 def send(sid, plan_id, text, quote):
@@ -195,13 +214,19 @@ def main():
 
     target = int(args.target)
     print(f"target={target} session={sid} batch={batch}")
-    plan_id = plan(sid, batch, target, args.intent, not args.no_quote)
+    plan_id, final_target = plan(sid, batch, target, args.intent, not args.no_quote)
     if not plan_id:
         print("PLAN_FAILED")
         return 1
 
-    if send(sid, plan_id, args.text, not args.no_quote):
+    # Quoting only makes sense when the plan still points at the message we meant
+    # to answer; after a rotation it would quote a stranger's line.
+    quote = (not args.no_quote) and final_target == target
+    if send(sid, plan_id, args.text, quote):
         record(target, args.text)
+        if final_target != target:
+            print(f"note: batch moved, plan target was {final_target}; "
+                  f"ledger still records {target} as answered")
         print("SENT")
         return 0
     print("SEND_FAILED")

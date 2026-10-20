@@ -118,6 +118,7 @@ plan_chat_reply(session_id, batch_id, action="reply",
 | --- | --- |
 | `READY` | 取 `plan_id`，进入 ③ |
 | `REJECTED` + `stale` / `needs_refresh` | 用 `updated_chat.input_batch.id` 原地重试，不要重新 wait |
+| `REJECTED` + `target_not_in_batch` | 批次翻页了。用返回里的 `valid_event_ids` 最后一个当新目标，**同一个 batch** 原地重试；此时不要引用（会引到别人） |
 | `REJECTED` + `source_unavailable` | NapCat 正在重连，等 30 秒再试 |
 | `REJECTED` + `batch_expired` | 重读 `wg_state.json` 拿最新 batch |
 | `REJECTED` + `chat_rejected` | 会话被别的等待者占着，跑 `up.py --status` 看守护 |
