@@ -119,8 +119,69 @@ def wait_napcat_ports(seconds=12):
     return False
 
 
+LAUNCHER_OLD_SWITCH = "--enable-logging"
+LAUNCHER_NEW_SWITCH = "--disable-gpu"
+
+
+def ensure_launcher_patch():
+    """Make the injected QQ start with --disable-gpu.
+
+    NapCatWinBootMain.exe builds QQ.exe's command line itself and only reads its
+    first three arguments (QQ.exe, hook.dll, uin). Anything appended after them is
+    dropped -- proven by passing --tulpa-probe-xyz, which never showed up in the
+    child command line and also cost the `-q <uin>` quick-login switch, so a
+    `qq_args` entry can never reach QQ.
+
+    The single switch the launcher does inject is "--enable-logging". Rewriting
+    that literal inside the binary is therefore the only way to hand QQ a flag it
+    will actually receive. Both strings are 16 and 13 characters, so the
+    replacement is space-padded and the file keeps its exact size:
+
+        QQ.exe --enable-logging  -q 3885934113   (stock)
+        QQ.exe --disable-gpu     -q 3885934113   (patched)
+
+    Why the GPU has to go: the bot instance and the user's own QQ both resolve
+    user-data-dir to %APPDATA%\\QQ. QQ obtains that path through the Shell API, so
+    overriding the APPDATA env var does nothing (an isolated .qqprofile stayed
+    empty through a full launch), and Chromium's crash report lists both accounts
+    under one profile. Two instances on one GPUCache kill the second GPU process
+    within minutes -- "GPU process isn't usable. Goodbye." -- and QQ pops a crash
+    dialog each time. With --disable-gpu no GPU process is spawned at all, and
+    NapCat is pure Node logic that never needed one.
+
+    Runs on every launch because a NapCat update restores the stock binary.
+    """
+    exe = NAPCAT_DIR / "NapCatWinBootMain.exe"
+    if not exe.exists():
+        return False
+    try:
+        data = exe.read_bytes()
+    except OSError:
+        return False
+    old = LAUNCHER_OLD_SWITCH.encode("utf-16le")
+    new = LAUNCHER_NEW_SWITCH.ljust(len(LAUNCHER_OLD_SWITCH)).encode("utf-16le")
+    if old not in data:
+        # Already patched, or a build that words the switch differently.
+        return new in data
+    backup = NAPCAT_DIR / "NapCatWinBootMain.exe.orig"
+    if not backup.exists():
+        try:
+            backup.write_bytes(data)
+        except OSError:
+            pass
+    try:
+        exe.write_bytes(data.replace(old, new, 1))
+    except OSError as exc:
+        # A running launcher holds the file; the next relaunch retries.
+        print(f"[Warn] 无法写入启动器补丁: {exc}")
+        return False
+    print("[启动] 已让注入实例走 --disable-gpu（避免与自己的 QQ 抢同一份 GPUCache）")
+    return True
+
+
 def launch_napcat_direct(qq_exe, account=""):
     """Inject NapCat without the .bat launcher, which hard-depends on reg query."""
+    ensure_launcher_patch()
     env = os.environ.copy()
     env.update(
         NAPCAT_PATCH_PACKAGE=str(NAPCAT_DIR / "qqnt.json"),
@@ -137,15 +198,32 @@ def launch_napcat_direct(qq_exe, account=""):
 
 
 def qq_extra_args():
-    """Extra switches handed to QQ.exe, empty by default.
+    """Extra switches handed to QQ.exe.
 
-    NapCatWinBootMain only understands the account argument: anything after it
-    makes the bootstrapper drop the `-q <uin>` quick-login and fall back to a QR
-    code, which then never completes on a headless box. Keep this empty unless a
-    future NapCat build is verified to forward switches.
+    Read from config.json (`qq_args`) first so the setting survives a restart and
+    is not lost when a fresh agent runs up.py without the environment it was first
+    started with. `TULPA_QQ_ARGS` stays as an override for one-off experiments.
+
+    Why this exists: the injected instance dies in a loop on this box with
+    "GPU process exited unexpectedly: exit_code=-1073741819" followed by
+    "GPU process isn't usable", about every ten minutes. --disable-gpu stops
+    Chromium from spawning a GPU process at all, which removes the failure mode
+    entirely. A bot does not need hardware acceleration.
+
+    Keep the list short: NapCatWinBootMain reads argv[3] as the account and is not
+    documented to forward anything beyond it, so each extra switch is a gamble that
+    quick login still works. Verify get_login_info reports the bot account after
+    changing this.
     """
     raw = os.environ.get("TULPA_QQ_ARGS", "")
-    return [part for part in raw.split() if part]
+    if raw.strip():
+        return [part for part in raw.split() if part]
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            args = json.load(f).get("qq_args") or []
+    except (OSError, ValueError):
+        return []
+    return [str(a) for a in args if str(a).strip()]
 
 
 def kill_stale_instances():
