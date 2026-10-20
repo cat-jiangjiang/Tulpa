@@ -72,7 +72,7 @@ def healthy():
     try:
         r = httpx.post(f"http://127.0.0.1:{PORT}/get_login_info",
                        headers={"Authorization": f"Bearer {TOKEN}"},
-                       timeout=10, trust_env=False)
+                       timeout=20, trust_env=False)
         return r.status_code == 200 and r.json().get("status") == "ok"
     except Exception:  # noqa: BLE001
         return False
@@ -139,8 +139,18 @@ def main():
                 fails = 0
                 time.sleep(10)
                 continue
-            time.sleep(4)
-            if healthy():
+
+            # One missed probe means nothing: NapCat stops answering while it pushes
+            # a burst of events, and killing it there costs the session, the cursor
+            # and the connection. Three misses spread over half a minute separate a
+            # wedged instance from a busy one.
+            recovered = False
+            for _ in range(3):
+                time.sleep(10)
+                if healthy():
+                    recovered = True
+                    break
+            if recovered:
                 fails = 0
                 continue
 
