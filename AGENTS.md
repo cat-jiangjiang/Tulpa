@@ -21,8 +21,12 @@
 .venv/Scripts/python.exe water-group/daemon/listen.py --timeout 300   # 挂监听（只活一轮，WAKE 后必须重挂）
 .venv/Scripts/python.exe water-group/daemon/reply.py --list            # 看谁 @ 了我
 .venv/Scripts/python.exe water-group/daemon/reply.py --context 30      # 回之前看群里在聊什么（含闲聊）
-.venv/Scripts/python.exe water-group/daemon/reply.py <id> "<正文>"      # 回一条，自动带原生引用
+.venv/Scripts/python.exe water-group/daemon/reply.py <id> "<正文>"      # 回一条，自动带原生引用；发完自动开追问窗口
 ```
+
+追问窗口：回复成功后 `reply.py` 自动开窗（默认再跟 10 条或静默 180 秒），群里继续聊的
+几句也会唤醒监听（唤醒行带 `[追问]` 前缀），话题能接着走；`--no-followup` 单次关闭，
+`config.json` 的 `followup` 段调参数，详见 `.agents/rules/water_group.md`。
 
 日常循环、按花名 @ 人、连发 @ 的处理、排查表，全部在 **`.agents/rules/water_group.md`**，动手前读它。本文件后面的内容是仓库开发与维护规范，不是挂机 SOP。
 

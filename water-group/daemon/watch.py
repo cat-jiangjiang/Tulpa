@@ -6,6 +6,11 @@ at wg_events.jsonl on its own schedule and the gap between two looks was dead
 time. This closes that gap — the call returns the moment a wake lands, so the
 only remaining delay is composing the reply.
 
+Two wake paths meet here: @ and keywords arrive in wg_events.jsonl, and while a
+follow-up window is open (followup.py) ordinary chatter after the last reply
+counts too, read straight from chat_inbox. They never overlap — a mention always
+wins — and the window closes itself once the group goes quiet.
+
 Exit codes:
   0  a wake was printed
   2  timed out with nothing new (call again)
@@ -21,6 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import followup  # noqa: E402  (追问窗口：回复之后继续听闲聊)
 import up  # noqa: E402  (wake_reason / events / replied_ids live there)
 
 ROOT = HERE.parents[1]
@@ -77,6 +83,29 @@ def main():
             write_cursor(max(latest_id(rows), max(e.get("id") or 0 for e in fresh)))
             print("WAKE")
             return 0
+
+        # 没有新的 @/关键词，但追问窗口可能还开着：回复之后群里继续聊的几句
+        # 全在 chat_inbox 里（mention_only 根本没把它们投递出来），顺带查一眼。
+        # 窗口自己会过期；路上撞见了就顺手关掉，不用另起进程打扫。
+        window = followup.load()
+        if window:
+            reason = followup.stale(window)
+            if reason:
+                followup.close()
+                print(f"[追问] 窗口关闭（{reason}）")
+            else:
+                woke = followup.consume(window,
+                                        followup.since(window.get("after_id"),
+                                                       window.get("session")))
+                for r in woke:
+                    stamp = time.strftime("%H:%M:%S", time.localtime((r.get("ts") or 0) / 1000))
+                    print(f"id={r.get('id')} {stamp} [追问] {r.get('sender')}: "
+                          f"{(r.get('text') or '')[:80]}")
+                if woke:
+                    print(f"[追问] 群里还在聊：额度还剩 {window.get('budget')} 条，"
+                          f"静默 {window.get('idle_seconds')}s 后收回")
+                    print("WAKE")
+                    return 0
 
         # Nothing to report: move past everything seen so a later call does not
         # rescan the whole file, then wait for the collector to append.

@@ -14,6 +14,11 @@
     "burst_messages": 80,
     "max_material": 60
   },
+  "followup": {
+    "enabled": true,
+    "max_messages": 10,
+    "idle_seconds": 180
+  },
   "groups": {
     "123456789": {
       "name": "示例交流群",

@@ -155,7 +155,7 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 > 2. **一条答得完就 `--also` 一起记账**：`reply.py 1564 "…" --also 1565 --also 1566`。
 >    只记 target，剩下两条下一轮会被当成没回再答一遍。
 >
-> `reply.py` 发送前会把所有没回的唤醒都查一遍（含更早的），会打印 `NOTE 还有 N 条没回：…`，
+> `reply.py` 发送前若发现后面还有没回的唤醒，会打印 `NOTE 后面还有 N 条在等：…`，
 > 看到就别闷头发。以前「@ 了没反应」的根因是 `replied_after` 把「之后出现过自己的消息」
 > 当成已回，现在按账本首条时间戳划线，新消息必须在账本里才算回过
 > （`scripts/check_wake_ledger.py` 钉住这个判定）。
@@ -179,6 +179,22 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 > [!WARNING]
 > **不要用 `reply.py --list | tail -4` 当上下文。** 那只是把唤醒日志截断，看到的是
 > 「谁 @ 了我」的最近几条，不是「群里刚才在聊什么」。要看上下文用 `--context`。
+
+**追问窗口：回复之后继续听群里聊。** `reply.py` 每次发送成功都会自动开窗——之后群里
+继续聊的几句（不再是 @）也会把 `watch.py` 唤醒，话题就能接着走下去；默认跟 10 条或
+静默 180 秒，窗口自己关掉，回到只等 @ 和关键词。实现走 `chat_inbox` 全量库
+（`followup.py`），不碰 collector，也就没有改 `mention_only` 要等它 170 秒长轮询返回的竞态。
+
+```bash
+# 唤醒行带 [追问] 前缀，末行同样 WAKE；照常回这条消息的 id
+.venv/Scripts/python.exe water-group/daemon/reply.py <追问消息id> "<正文>"
+# 群号和 onebot_message_id 会自动从 chat_inbox 兜底，引用挂得上去
+```
+
+- 有人接话就续期，接满 `max_messages`（默认 10）或静默超 `idle_seconds`（默认 180）才收；
+  配置在 `water-group/config.json` 的 `followup` 段，单次不想开加 `--no-followup`。
+- 窗口期间来的 @ 走正常唤醒（@ 优先），回复它窗口重新开满；`up.py --status` 的「追问」
+  一行看窗口状态，`followup.py --show` 同款调试输出。
 
 ---
 

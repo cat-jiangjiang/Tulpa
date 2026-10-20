@@ -395,6 +395,10 @@ def replied_after(event_id, rows, ledger=None):
 
 
 def report(exclude_pids=None, resident_pid=None):
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import followup
+
     account, nickname = (None, None)
     info = login_info()
     if info:
@@ -419,6 +423,12 @@ def report(exclude_pids=None, resident_pid=None):
     listeners = listener_pids(exclude=exclude_pids)
     listener = (f"已挂 pid={','.join(listeners)}" if listeners
                 else "未挂 —— 消息照收，但没人会叫醒你")
+    window = followup.load()
+    if window and not followup.stale(window):
+        until = time.strftime("%H:%M:%S", time.localtime(window.get("until") or 0))
+        follow = f"进行中（回复后还可跟 {window.get('budget')} 条，静默至 {until}）"
+    else:
+        follow = "未开窗（只等 @ 和关键词）"
     rows = events()
     ledger = replied_ids()
     wakes = [e for e in rows if wake_reason(e)][-6:]
@@ -428,6 +438,7 @@ def report(exclude_pids=None, resident_pid=None):
     print(f"后端      : {backend}  (47860 / 48777)")
     print(f"守护      : {guard}  心跳 {beat}")
     print(f"监听      : {listener}")
+    print(f"追问      : {follow}")
     print(f"会话      : {read_text(STATE / 'wg_session.txt') or '（尚未建立）'}")
     print(f"游标      : {read_text(STATE / 'wg_ack.txt') or '0'}   事件 {len(rows)} 条")
     if wakes:
