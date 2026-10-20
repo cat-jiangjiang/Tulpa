@@ -116,15 +116,22 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
 > **绝不要自己调 `wait_chat_messages`**。会和 collector 抢同一个会话，返回
 > 「此会话已有 Agent 在等待」；而且工具超时会把循环打断——这正是旧做法失效的根因。
 
-等新消息用普通命令轮询文件：
+等新消息用**阻塞式** `watch.py`，不要自己 `sleep` + `wc -l` 轮询：
 
 ```bash
-base=$(wc -l < .tmp/wg_events.jsonl)
-for i in $(seq 1 56); do
-  [ "$(wc -l < .tmp/wg_events.jsonl)" -gt "$base" ] && break
-  sleep 5
-done
+.venv/Scripts/python.exe water-group/daemon/watch.py --timeout 240
 ```
+
+> [!IMPORTANT]
+> 它会一直阻塞到有人 @ 你或提到关键词，然后立刻打印并返回（实测落盘后 1 秒内）。
+> 手写轮询的间隔就是「消息来了半分钟才回」的延迟来源——collector 1 秒内就落盘了，
+> 慢的只是 Agent 隔一阵才看一次。
+>
+> | 退出码 | 含义 | 下一步 |
+> | --- | --- | --- |
+> | `0` | 有唤醒（末行 `WAKE`） | 立刻 `reply.py <id> "<正文>"` |
+> | `2` | 超时无唤醒 | 再调一次 |
+> | `1` | 事件流读不到 | 跑 `up.py --status` |
 
 唤醒条件（服务端已过滤一次，这里复核）：
 

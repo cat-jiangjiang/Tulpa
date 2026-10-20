@@ -61,17 +61,27 @@
 | `wg_state.json` | 最近一次 wait 的返回，含 `input_batch.id` |
 | `wg_session.txt` | 会话 id |
 | `wg_ack.txt` | 已落盘游标（**不是**已回复游标） |
+| `wg_replied.jsonl` | 已回账本，`reply.py` 成功发送时写 |
+| `wg_watch.txt` | `watch.py` 的扫描游标 |
 | `wg_pause` | 存在时 collector 暂停采集，别误留 |
 
-等新消息用普通命令轮询文件，不要用 MCP 等待：
+### 等消息：用 `watch.py`，不要自己轮询
 
 ```bash
-base=$(wc -l < .tmp/wg_events.jsonl)
-for i in $(seq 1 56); do
-  [ "$(wc -l < .tmp/wg_events.jsonl)" -gt "$base" ] && break
-  sleep 5
-done
+.venv/Scripts/python.exe water-group/daemon/watch.py --timeout 240
 ```
+
+**它会阻塞，直到有人 @ 你或提到关键词，然后立刻打印并返回**（实测新唤醒落盘后 1 秒内返回）。
+不要用 `sleep` + `wc -l` 那种轮询——那正是「消息来了半分钟才回」的原因：
+collector 其实 1 秒内就落盘了，慢的是 Agent 自己隔一阵才看一次。
+
+| 退出码 | 含义 | 下一步 |
+| --- | --- | --- |
+| `0` | 打印了唤醒（末行 `WAKE`） | 马上 `reply.py <id> "<正文>"` |
+| `2` | 超时，没有新唤醒 | 再调一次，不要改去 sleep |
+| `1` | 事件流读不到 | 跑 `up.py --status` |
+
+`--replay` 忽略游标重扫；`--after N` 从指定 id 之后开始。
 
 唤醒条件（服务端已过滤一次，这里复核）：
 
