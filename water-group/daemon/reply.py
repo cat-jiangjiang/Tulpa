@@ -106,6 +106,16 @@ def plan(sid, batch, target, intent, quote):
         if state == "READY":
             return data.get("plan_id"), target
 
+        if state == "SUCCEEDED":
+            # Planning is keyed on (session, batch, target, intent): asking again
+            # for a combination that already finished replays the old plan instead
+            # of issuing a new one. That bites when the batch rotated and an earlier
+            # attempt already consumed this target, and it looks like a send that
+            # never happened -- the group stayed silent while this returned
+            # SUCCEEDED. Nudge the intent so the server plans afresh.
+            intent = f"{intent}·{attempt + 2}"
+            continue
+
         if code in ("stale", "needs_refresh"):
             updated = data.get("updated_chat") or {}
             new_batch = (updated.get("input_batch") or {}).get("id")
