@@ -43,6 +43,8 @@ def main():
     parser = argparse.ArgumentParser(description="等消息；闲下来就沉淀积压，有事就退出叫人")
     parser.add_argument("--timeout", type=int, default=300, help="每轮静默等待多少秒")
     parser.add_argument("--cycles", type=int, default=0, help="最多循环几轮，0 表示不限（调试用）")
+    parser.add_argument("--no-digest", action="store_true",
+                        help="超时后不沉淀、不查档案，只等（给 reply.py --wait 用）")
     args = parser.parse_args()
 
     cycles = 0
@@ -57,6 +59,15 @@ def main():
             # 1 is "stream unreadable"; anything else means the script itself broke.
             print(f"WATCH_FAILED rc={rc}")
             return 1
+
+        if args.no_digest:
+            # A caller waiting on a bounded clock needs the bound to hold. The
+            # digest pass takes tens of seconds on a backlog, which turns
+            # "--wait 6" into a minute and makes the timeout meaningless.
+            if args.cycles and cycles >= args.cycles:
+                print("NO_WORK")
+                return 0
+            continue
 
         # Timed out: the group has been quiet. Rule-based digestion is free, so it
         # runs on every quiet stretch; the model-backed pass is left to whoever

@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -83,11 +84,20 @@ def replied_ids():
     return ids
 
 
-def record(event_id, text):
+def record(event_ids, text):
+    """Ledger every event this one message answers.
+
+    A burst of @-mentions usually gets one reply ("@A 和 @B 都别急"), and all of
+    them have to be marked or the next agent re-answers the ones left out.
+    """
+    if isinstance(event_ids, int):
+        event_ids = [event_ids]
     STATE.mkdir(parents=True, exist_ok=True)
+    now = int(time.time())
     with open(REPLIED, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps({"id": event_id, "ts": int(time.time()), "text": text},
-                            ensure_ascii=False) + "\n")
+        for event_id in event_ids:
+            fh.write(json.dumps({"id": event_id, "ts": now, "text": text},
+                                ensure_ascii=False) + "\n")
 
 
 def plan(sid, batch, target, intent, quote):
@@ -438,6 +448,47 @@ def latest_group_id():
     return ""
 
 
+def pending_wakes(after_id=0):
+    """Wake events newer than `after_id` that nobody has answered yet.
+
+    Same rules as `up.py --status`, deliberately: this is the burst check, and a
+    second opinion on what "answered" means would defeat the point.
+    """
+    import up
+
+    rows = up.events()
+    ledger = up.replied_ids()
+    return [e for e in rows
+            if (e.get("id") or 0) > after_id
+            and up.wake_reason(e)
+            and not up.replied_after(e.get("id"), rows, ledger)]
+
+
+def wait_for_next(seconds):
+    """Park in the listener loop right after sending, and pass its output through.
+
+    Re-hanging by hand leaves a window between the send and the next listen.py
+    in which @-mentions land in the file with nobody watching. That window is a
+    whole agent turn -- tens of seconds -- and it is exactly where a burst gets
+    lost. Starting the loop here, in the process that just sent, closes it to a
+    few hundred milliseconds.
+
+    `--cycles 1 --no-digest` bounds it: listen.py otherwise loops forever, and a
+    tool call that never returns cannot be told apart from a hang. The digest
+    pass is skipped because it takes tens of seconds on a backlog, which would
+    make "--wait 6" take a minute.
+    """
+    import up
+
+    if up.listener_pids():
+        print("已有监听在跑，不再重复挂")
+        return 0
+    print(f"等下一次唤醒（最多 {seconds}s）…", flush=True)
+    cmd = [sys.executable, str(HERE / "listen.py"), "--timeout", str(seconds),
+           "--cycles", "1", "--no-digest"]
+    return subprocess.run(cmd, cwd=str(ROOT)).returncode
+
+
 def main():
     parser = argparse.ArgumentParser(description="回一条群消息并记账")
     parser.add_argument("target", nargs="?", help="要回复的消息 id；省略则回最新一条待回")
@@ -446,6 +497,10 @@ def main():
     parser.add_argument("--no-quote", action="store_true", help="不带引用")
     parser.add_argument("--at", action="append", default=[], metavar="花名",
                         help="在正文前面 @ 某人，可重复")
+    parser.add_argument("--also", type=int, action="append", default=[], metavar="ID",
+                        help="同一条回复顺带算作回了这些消息（连发的 @ 用一条答完）")
+    parser.add_argument("--wait", type=int, default=0, metavar="秒",
+                        help="发完就地等下一条唤醒，不用退出后另外重挂监听")
     parser.add_argument("--who", metavar="花名", help="只解析名字到 QQ，不发送")
     parser.add_argument("--group", help="配合 --who；省略则取最近一条事件所在的群")
     parser.add_argument("--list", action="store_true", help="只列出 @ 过我的消息")
@@ -477,7 +532,18 @@ def main():
 
     segments = build_segments(args.text, group_id, leading=args.at)
     has_at = any(s["type"] == "at" for s in segments)
+    answered = [target, *[i for i in args.also if i != target]]
     print(f"target={target} group={group_id} session={sid}")
+
+    # The listener is dead between the wake and the re-hang, so @-mentions that
+    # land while this reply is being written are only visible in the file. Saying
+    # so here is what keeps a burst from being answered by its first message
+    # alone: by the time anyone looks again, those ids would read as [已回].
+    newer = pending_wakes(target)
+    if newer:
+        ids = "、".join(str(e.get("id")) for e in newer)
+        print(f"  NOTE 后面还有 {len(newer)} 条在等：{ids}")
+        print("       一条答得完就加 --also，答不完就先回这条再接着回")
 
     # Quote through OneBot first: it is the only path that can point at a message
     # from an older batch, which is the normal case once the group is chatting.
@@ -486,9 +552,9 @@ def main():
     if has_at or (not args.no_quote and found):
         message_id = None if args.no_quote else (found[1] if found else None)
         if onebot_send(group_id, segments, message_id):
-            record(target, args.text)
+            record(answered, args.text)
             print("SENT")
-            return 0
+            return wait_for_next(args.wait) if args.wait else 0
         if has_at:
             print("SEND_FAILED: 带 @ 的消息只能走 OneBot，计划通道会把它降级成纯文本")
             return 1
@@ -506,11 +572,11 @@ def main():
         return 1
     quote = (not args.no_quote) and final_target == target
     if send(sid, plan_id, args.text, quote):
-        record(target, args.text)
+        record(answered, args.text)
         if final_target != target:
             print(f"note: batch moved, plan target was {final_target}")
         print("SENT")
-        return 0
+        return wait_for_next(args.wait) if args.wait else 0
     print("SEND_FAILED")
     return 1
 

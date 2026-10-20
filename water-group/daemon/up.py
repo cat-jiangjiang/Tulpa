@@ -336,19 +336,58 @@ def replied_ids():
     return ids
 
 
+_LEDGER_START = {"mtime": None, "ts": 0.0}
+
+
+def ledger_started():
+    """Timestamp of the first entry in wg_replied.jsonl, or 0.0 when there is none.
+
+    Everything older than this was answered before the ledger existed, so a later
+    self message is the only evidence left for it. Everything newer has to be in
+    the ledger itself. Cached on mtime: the file is append-only, so the first
+    line never moves.
+    """
+    path = STATE / "wg_replied.jsonl"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return 0.0
+    if _LEDGER_START["mtime"] == mtime:
+        return _LEDGER_START["ts"]
+    ts = 0.0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            ts = float(json.loads(line)["ts"])
+            break
+        except (ValueError, KeyError, TypeError):
+            continue
+    _LEDGER_START.update(mtime=mtime, ts=ts)
+    return ts
+
+
 def replied_after(event_id, rows, ledger=None):
     """Whether the bot spoke after this message — a cheap proxy for "answered".
 
     The ack cursor only records what reached disk, so it cannot answer this. The
     local ledger is the primary signal; a self message appearing later in the
     stream is the fallback for replies sent before the ledger existed.
+
+    That fallback is fenced to pre-ledger events on purpose. Left open it turns
+    "answered" into "any self message came later", so a reply to one message
+    marks every @ that arrived while it was being typed as answered — which is
+    exactly how a burst gets dropped: 1564「@一下地牢主」was swallowed by the
+    reply to 1563「？」, because that reply landed two seconds later.
     """
     if ledger and event_id in ledger:
         return True
+    started = ledger_started()
     seen = False
     for row in rows:
         if row.get("id") == event_id:
             seen = True
+            if started and (row.get("timestamp") or 0) / 1000 >= started:
+                # The ledger was already keeping score by then. Not in it, not answered.
+                return False
             continue
         if seen and row.get("is_self"):
             return True
