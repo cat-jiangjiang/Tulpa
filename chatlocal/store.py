@@ -59,8 +59,6 @@ class Store:
         if 'reply_to' not in columns:db.execute('ALTER TABLE messages ADD COLUMN reply_to TEXT')
         from .image_identity import initialize as initialize_image_ids
         initialize_image_ids(db)
-        from .reply_history import initialize as initialize_reply_history
-        initialize_reply_history(db)
         if 'original_content' not in columns:db.execute('ALTER TABLE messages ADD COLUMN original_content TEXT')
         from .sync_state import initialize
         initialize(db)
@@ -80,14 +78,8 @@ class Store:
         initialize_changes(db)
         from .workspaces import initialize as initialize_workspaces
         initialize_workspaces(db)
-        from .replies import initialize as initialize_replies
-        initialize_replies(db)
         from .group_admin import initialize as initialize_group_admin
         initialize_group_admin(db)
-        from .import_pipeline import initialize as initialize_imports
-        initialize_imports(db)
-        from .tulpa import initialize as initialize_tulpa
-        initialize_tulpa(db)
 
     @contextmanager
     def connect(self):
