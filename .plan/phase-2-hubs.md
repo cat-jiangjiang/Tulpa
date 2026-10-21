@@ -160,13 +160,11 @@ onebot_configured = bool(cfg.get("onebot_http_url") and cfg.get("onebot_token"))
 
 ### 4 个改动
 
-1. **`accounts()`**（`mcp_access.py:80-81`）：不再调 `client_accounts.bound_account`。改为：
-   ```python
-   def accounts(self):
-       account = str(wg_config().get("self_account") or "")
-       return {"qq": account} if account else {}
-   ```
-   保持返回结构与旧 `bound_account` 一致（grant 写入的 `accounts` JSON 不变）。
+1. **`accounts()`**（`mcp_access.py:80-81`）：~~不再调 `client_accounts.bound_account`。改为：~~ **复核后推翻，保留 `bound_account`**（见下方「§2.4.1 复核勘误」）。原因：
+   - plan 想用 `wg_config().get("self_account")`（=`3885934113`）替换 `bound_account`（现库 qq=None → 返回 `''`）。但 grant 表里 6 条现存 grant 的 `accounts` 字段都存 `{'qq': ''}`（其中 1 条还带 wechat）。`validate_grant` 用 `accounts==self.accounts(platforms)` 判定有效性，换源后 `'' != '3885934113'`，6 条 grant **全部失效 → 全量 401**，正撞 R2/E8/R12。
+   - 同时 `check_mcp.py:306` 与 `check_mcp_downloads.py:36` 都用 `patch('chatlocal.mcp_access.bound_account', return_value=...)` 测「账号变更被拒」与下载鉴权；`accounts()` 不再调 `bound_account` 后这两个 patch 失效，门禁假绿/真红。
+   - `client_accounts` 是 Phase 3 批次 B 删除目标，但 `mcp_access.accounts()` 仍在 keep；删模块时 Phase 3 把 `accounts()` 一起改（连同重铸 6 条 grant 的 accounts 字段），不是本 Phase 的活。
+   - **本 Phase 落地：`accounts()` 原样不动**，`mcp_access.py:9` 的 `from .client_accounts import bound_account` 保留。Phase 3 删 `client_accounts` 时再统一处理（重写 `accounts()` + 迁移 grant accounts + 跑 check_mcp/Downloads）。
 2. **`plan()` 必须保留**（主文档 §3.3 勘误）：
    - `plan()` 被 `mcp_chat.py:288/455/573`、`mcp_chat_details.py:130`、`mcp_actions.py:53`、`mcp_chat_media.py:435` 使用，只用到 `.start/.end` 窗口。
    - 保留 `chatlocal/retrieval.py` 的 `Plan`/`date_bound`/`scope_sql`（≈35 行），删 `make_plan/retrieve` 等重逻辑；或把这 3 个符号内联进 `mcp_access`。**不要删模块**。
