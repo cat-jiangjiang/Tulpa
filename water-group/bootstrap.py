@@ -428,7 +428,8 @@ def ensure_tulpa():
             return True, f"在线且 MCP 握手就绪 ({msg})"
     
     print("[启动] 正在后台启动 Tulpa 主服务 (Web: 47860, MCP: 48777)...")
-    start_process_detached([get_python_exe(), "app.py"], cwd=str(ROOT_DIR), log_name="tulpa.log")
+    server_script = os.environ.get("TULPA_WG_SERVER", "server_wg.py")
+    start_process_detached([get_python_exe(), server_script], cwd=str(ROOT_DIR), log_name="tulpa.log")
     
     ports_ok = False
     for _ in range(12):

@@ -9,4 +9,4 @@ if ((Test-Path -LiteralPath "$PSScriptRoot\tools\snowluma-v1.14.20\node.exe") -a
     (Select-String -LiteralPath "$PSScriptRoot\.env" -Pattern '^REPLY_ONEBOT_URL\s*=\s*.?http' -Quiet)) {
     & "$PSScriptRoot\scripts\start-reply-sender.ps1"
 }
-& "$PSScriptRoot\.venv\Scripts\python.exe" "$PSScriptRoot\app.py"
+& "$PSScriptRoot\.venv\Scripts\python.exe" "$PSScriptRoot\server_wg.py"

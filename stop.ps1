@@ -1,5 +1,5 @@
 $ErrorActionPreference='Stop'
-$appPath=Join-Path $PSScriptRoot 'app.py'
+$appPath=Join-Path $PSScriptRoot 'server_wg.py'
 $matches=Get-CimInstance Win32_Process | Where-Object {
     $_.Name -match '^python' -and $_.CommandLine -and $_.CommandLine.Contains($appPath)
 }

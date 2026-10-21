@@ -2,7 +2,7 @@
 
 Children:
   db_keeper.py  holds SQLite WAL connections open so -shm is never yanked mid-read
-  app.py        the Tulpa backend: Web UI on 47860, MCP endpoint on 48777
+  server_wg.py  the water-group backend: HTTP on 47860, MCP listener on 48777
   collector.py  holds the MCP long-poll and persists every delivered message
   watchdog.py   keeps the injected QQ/NapCat instance answering
 
@@ -34,11 +34,15 @@ PY = sys.executable
 # the most random-looking black box in the stack.
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+# Per-child log handles. Kept on the supervisor instance so the file objects are
+# not garbage-collected (which would close them) between spawns and restarts.
+CHILD_LOGS = {}
+
 # app.py is started first in spirit, but db_keeper has no dependency and opening it
 # early means the WAL sidecar is already pinned by the time the backend touches it.
 CHILDREN = {
     "db_keeper": HERE / "db_keeper.py",
-    "app": ROOT / "app.py",
+    "app": Path(os.environ.get("TULPA_WG_SERVER", ROOT / "server_wg.py")),
     "collector": HERE / "collector.py",
     "watchdog": HERE / "watchdog.py",
 }
@@ -69,11 +73,26 @@ def heartbeat_age():
         return 10 ** 9
 
 
+def child_log(name):
+    """Return an append-mode utf-8 handle for a child's stdout/stderr.
+
+    The handle is cached on CHILD_LOGS so it stays open for the life of the
+    supervisor; a short-lived local would be GC'd and close the file between
+    restarts, hiding ImportError tracebacks in a black box.
+    """
+    fh = CHILD_LOGS.get(name)
+    if fh is None or fh.closed:
+        LOG.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(LOG.parent / f"{name}.log", "a", encoding="utf-8")
+        CHILD_LOGS[name] = fh
+    return fh
+
+
 def spawn(name, script):
     try:
         return subprocess.Popen(
             [PY, str(script)], cwd=str(ROOT), env=sanitized_env(),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=child_log(name), stderr=subprocess.STDOUT,
             creationflags=NO_WINDOW,
         )
     except Exception as exc:  # noqa: BLE001
