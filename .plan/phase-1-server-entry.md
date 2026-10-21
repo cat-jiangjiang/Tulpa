@@ -1,5 +1,6 @@
 # Phase 1 — 最小 server 入口（非破坏）
 
+> 状态: **已完成** (2026-10-21)。`server_wg.py` 已建 (commit 49d8b11), supervisor/bootstrap/ps1 已指向新入口, §1.6 冷启动验收通过 (见 `logs/phase-1/01-cold-start.txt`): settings (1,1,48777), collector 建会话 e200c0d..., 真实 @ 回复 message_id=708410609, 自愈 taskkill 后 12s 内重启。
 > 目标：新增 `server_wg.py` 作为唯一后端入口，把 supervisor / bootstrap / ps1 的指向切过去；**不删任何文件、不改任何业务逻辑**。
 > 预计：1-1.5 天。前置：Phase 0 完成。产出：后端可从新入口冷启动、MCP 48777 正常监听、daemon 全链路可用。
 
@@ -74,8 +75,8 @@ if __name__ == "__main__":
                 access_log=False, log_level="info")
 ```
 
-- [ ] 文件保存为 UTF-8；不要 import `app.py` 或任何 Gradio 模块。
-- [ ] 手动验证一次：`uv run python server_wg.py`（先停栈），浏览器/curl `http://127.0.0.1:47860/` 返回 JSON；`netstat` 见 48777。
+- [x] 文件保存为 UTF-8；不要 import `app.py` 或任何 Gradio 模块。
+- [x] 手动验证一次：`uv run python server_wg.py`（先停栈），浏览器/curl `http://127.0.0.1:47860/` 返回 JSON；`netstat` 见 48777。
 
 ## 1.2 `supervisor.py` 换入口 + 子进程日志
 
@@ -92,8 +93,8 @@ CHILDREN = {
 
 同时改 `spawn()`（`supervisor.py:72-81`）：把 `stdout/stderr=DEVNULL`（`:76`）改为追加写 `water-group/logs/<name>.log`（`open(..., "a", encoding="utf-8")`，句柄交给 Popen 并保留引用，避免被 GC 关闭）。`CREATE_NO_WINDOW`（`:35`）保持。
 
-- [ ] 更新文件头 docstring 的进程树说明（`supervisor.py:5` 附近）。
-- [ ] 保留 child 名称 `"app"` 不变（`stop.ps1:4` 的 `CommandLine.Contains` 与日志文件名 `<name>.log` 依赖它）。注：`up.py --status` 的 WMI 模式匹配的是 `supervisor\.py|daemon[\\/]up\.py`，**不**依赖 "app" 名。
+- [x] 更新文件头 docstring 的进程树说明（`supervisor.py:5` 附近）。
+- [x] 保留 child 名称 `"app"` 不变（`stop.ps1:4` 的 `CommandLine.Contains` 与日志文件名 `<name>.log` 依赖它）。注：`up.py --status` 的 WMI 模式匹配的是 `supervisor\.py|daemon[\\/]up\.py`，**不**依赖 "app" 名。
 
 ## 1.3 `bootstrap.py` 去掉 `app.py` 硬编码
 
@@ -107,7 +108,7 @@ CHILDREN = {
 
 - `start.ps1:12` 的 `app.py` → `server_wg.py`。
 - `stop.ps1:2` 的进程匹配 `app.py` → `server_wg.py`（直接替换，不保留 `app.py` 兼容分支——slim 路线不留兼容层）。
-- [ ] 顺手检查 `setup.ps1` 是否有 `app.py` 引用（实测当前无，空动作但照跑）。
+- [x] 顺手检查 `setup.ps1` 是否有 `app.py` 引用（实测当前无，空动作但照跑）。
 
 ## 1.5 `requirements.txt` 补 `requests`
 
@@ -119,7 +120,7 @@ daemon 3 个文件依赖（`bootstrap.py:9`、`sync_groups.py:5`、`reply.py:32`
 uv pip show requests | head -5   # 取实际版本
 ```
 
-- [ ] 在 `requirements.txt` 增加 `requests==<实际版本>`。
+- [x] 在 `requirements.txt` 增加 `requests==<实际版本>`。
 
 ## 1.6 冷启动验收（必须逐条过）
 
@@ -142,16 +143,17 @@ curl -s http://127.0.0.1:47860/                                # {"ok":true,...}
 tail -40 water-group/logs/app.log                              # uvicorn + MCP 启动日志
 ```
 
-- [ ] `data/mcp-access.sqlite3` 的 `settings` 行是 `(1, 1, 48777)`。
-- [ ] `bootstrap --status-only` 的 MCP ping 返回 200/401（`bootstrap.check_tulpa_mcp_health`）。
-- [ ] collector 建会话：`.tmp/wg_session.txt` 有值、`.tmp/wg_heartbeat` 是新的（<30s）。
-- [ ] 一次真实 @ 回复：`reply.py --list` 看谁 @ 了我 → `reply.py <event_id> "..."` 成功；`wg_replied.jsonl` 落一条。
-- [ ] **自愈测试**：`taskkill /F /PID <server_wg pid>`（精确 PID，勿用 `/IM python.exe` 通配），15s 内 supervisor 重启，48777 重新监听，`reply.py --list` 仍可用。
-- [ ] 失败排查顺序：`app.log` → `settings` 行 → lifespan 是否被覆盖 → 端口是否被 bootstrap 双起 → 是否误用 `up.py` 起栈导致 QQ 崩。
+- [x] `data/mcp-access.sqlite3` 的 `settings` 行是 `(1, 1, 48777)`。
+- [x] `bootstrap --status-only` 的 MCP ping 返回 200/401（`bootstrap.check_tulpa_mcp_health`）。
+- [x] collector 建会话：`.tmp/wg_session.txt` 有值、`.tmp/wg_heartbeat` 是新的（<30s）。
+- [x] 一次真实 @ 回复：`reply.py --list` 看谁 @ 了我 → `reply.py <event_id> "..."` 成功；`wg_replied.jsonl` 落一条。
+- [x] **自愈测试**：`taskkill /F /PID <server_wg pid>`（精确 PID，勿用 `/IM python.exe` 通配），15s 内 supervisor 重启，48777 重新监听，`reply.py --list` 仍可用。
+- [x] 失败排查顺序：`app.log` → `settings` 行 → lifespan 是否被覆盖 → 端口是否被 bootstrap 双起 → 是否误用 `up.py` 起栈导致 QQ 崩。
 
 ## 1.7 提交
 
-```bash
+已提交 (49d8b11):
+```
 git add server_wg.py water-group/daemon/supervisor.py water-group/bootstrap.py start.ps1 stop.ps1 requirements.txt
 git commit -m "slim(p1): add server_wg entry, repoint supervisor/bootstrap/ps1"
 ```

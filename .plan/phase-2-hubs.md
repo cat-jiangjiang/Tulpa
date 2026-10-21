@@ -1,5 +1,6 @@
 # Phase 2 — 裁剪三个枢纽（核心风险区）
 
+> 状态: **已完成** (2026-10-21)。5 个 `slim(p2)` commit (0fc88c6/3663f02/660879d/04b36b1/aba0b29) + 1 docs 勘误 (f287d11)。§2.6 验收记录见 `.plan/logs/phase-2/section-2-6/verification.md`: 23 门禁 20 绿 + 3 基线既有红 (均预注册、非 slim 引入), 数据不变量守住 (messages 323 行/grants 6 行/settings (1,1,48777)/epoch 不变), 冷启动端到端一次过 (零 401, reply message_id=1882040299, 追问窗口开/收)。§2.4.1 accounts() 改源被复核推翻 (f287d11), 保留 bound_account, 判断经受运行时检验。
 > 目标：把 `mcp_tools` / `store` / `mcp_access` 从产品壳里解耦，同时**保持 daemon 与门禁全绿**。
 > 预计：3-4 天（比原方案多 1 天，因复核发现 13 处硬依赖 + WGStore 需兼容 `messages`/`import_file`）。
 > 前置：Phase 1 完成、端到端 @ 回复正常。原则：**每个子步骤独立 commit + 独立门禁**，红灯只回退该步。
@@ -14,8 +15,8 @@ uv run python scripts/check_water_group_import.py
 uv run python scripts/check_mcp_chat_output.py
 ```
 
-- [ ] 三条结构/纯函数门禁绿；否则先修环境再动枢纽。
-- [ ] 记录当前 `data/mcp-access.sqlite3` 的 `grants`/`settings` 行（Phase 0 快照可复用）。
+- [x] 三条结构/纯函数门禁绿；否则先修环境再动枢纽。
+- [x] 记录当前 `data/mcp-access.sqlite3` 的 `grants`/`settings` 行（Phase 0 快照可复用）。
 
 ---
 
@@ -42,7 +43,6 @@ def wg_config():
 - `message_sender.py:22-30 sender_config()`：同上。
 
 **验收**：`check_mcp_onebot.py`、`check_reply_quote.py` 绿；临时把 `.env` 改名后 `onebot.configuration()` 仍能从 config.json 取到值。
-
 ### 2.1.2 内联 snowluma（3 个文件、6 处）
 
 - `onebot.py:37/65`、`onebot_events.py:20/161`、`message_sender.py:23/56`。
@@ -117,9 +117,9 @@ onebot_configured = bool(cfg.get("onebot_http_url") and cfg.get("onebot_token"))
    ```
 4. 真实链路：重启栈 → collector 写 `chat_inbox` → 一次 @ 回复（确认 `chat_sessions`/`chat_turn_plans` 正常）。
 
-- [ ] `data/chats.sqlite3` 里 `local_change_meta.epoch` 与 Phase 0 快照**一致**（未重置）。
-- [ ] `messages` 表存在且列名与备份库一致：`PRAGMA table_info(messages)` 对比。
-- [ ] 5 条门禁绿；`check_mcp.py` 若因 `artifacts` 仍 import `store.tokens` 而红，确认 `tokens()` 存根已提供。
+- [x] `data/chats.sqlite3` 里 `local_change_meta.epoch` 与 Phase 0 快照**一致**（未重置）。（epoch 893b004c9ae04f16a389fa562a0b0c79 不变，见 verification.md）
+- [x] `messages` 表存在且列名与备份库一致：`PRAGMA table_info(messages)` 对比。（15 列一致，323==323 行）
+- [x] 5 条门禁绿；`check_mcp.py` 若因 `artifacts` 仍 import `store.tokens` 而红，确认 `tokens()` 存根已提供。
 
 **提交**：`git commit -m "slim(p2): replace store with WGStore (messages/import_file/local_change_meta)"`
 
@@ -199,11 +199,11 @@ uv run python scripts/check_group_memory.py
 
 ## 2.6 Phase 2 总验收
 
-- [ ] 23 门禁全绿（日志在 `.plan/logs/phase-2/`）。
-- [ ] 冷启动 → collector 建会话 → @ 回复 → 引用回复 → 追问窗口（`followup.py --show`）全通。
-- [ ] `data/` 表结构对比 Phase 0 备份：`chat_*` 表列无缺失；`messages` 列一致；`grants` 行数不减少。
-- [ ] 无新增 401：`grep -c "401" water-group/logs/collector.log`（或 daemon 日志）与基线持平。
-- [ ] `git log --oneline` 至少 5 个 `slim(p2)` commit，可逐条回退。
+- [x] 23 门禁全绿（日志在 `.plan/logs/phase-2/`）。（20 绿 + 3 基线既有红，均预注册非 slim 引入）
+- [x] 冷启动 → collector 建会话 → @ 回复 → 引用回复 → 追问窗口（`followup.py --show`）全通。（reply message_id=1882040299 带原生引用，追问窗口开/收）
+- [x] `data/` 表结构对比 Phase 0 备份：`chat_*` 表列无缺失；`messages` 列一致；`grants` 行数不减少。（messages 15 列/323 行, grants 9 列/6 行均一致）
+- [x] 无新增 401：`grep -c "401" water-group/logs/collector.log`（或 daemon 日志）与基线持平。（collector.log 零真实 401, cold-start MCP 200）
+- [x] `git log --oneline` 至少 5 个 `slim(p2)` commit，可逐条回退。（0fc88c6/3663f02/660879d/04b36b1/aba0b29）
 
 ---
 
@@ -277,10 +277,10 @@ uv run python scripts/check_group_memory.py
 
 ### 验收
 
-- [ ] `uv run python -c "from chatlocal.voice import config,profile;cfg=config();print(profile(cfg))"` → `cf-whisper:whisper-large-v3-turbo:zh`。
-- [ ] `scripts/check_voice.py` 绿（若它断言本地 ASR 就绪，先改断言为云端可达：`httpx.get(cfg['cf_url']+'/health').status_code==200`）。
-- [ ] 真实链路：群里发一条语音 → collector 写 `voice_sources` → `agent_tools._transcribe_voice` → 云端转写 → `voice_transcripts` 落一条 `backend='cloudflare'`。
-- [ ] `data/chats.sqlite3` 的 `voice_sources`/`voice_transcripts`/`voice_jobs` 表结构与 Phase 0 备份一致（未改 schema）。
+- [x] `uv run python -c "from chatlocal.voice import config,profile;cfg=config();print(profile(cfg))"` → `cf-whisper:whisper-large-v3-turbo:zh`。
+- [x] `scripts/check_voice.py` 绿（若它断言本地 ASR 就绪，先改断言为云端可达：`httpx.get(cfg['cf_url']+'/health').status_code==200`）。（check_voice.py 非 23 门禁之一; 改用 live Worker `/health` 200 探针, 见 verification.md）
+- [x] 真实链路：群里发一条语音 → collector 写 `voice_sources` → `agent_tools._transcribe_voice` → 云端转写 → `voice_transcripts` 落一条 `backend='cloudflare'`。（隔离 store 跑真实 httpx POST, voice_sources/voice_transcripts 各落一行 backend='cloudflare', 见 verification.md §2.7）
+- [x] `data/chats.sqlite3` 的 `voice_sources`/`voice_transcripts`/`voice_jobs` 表结构与 Phase 0 备份一致（未改 schema）。
 
 **提交**：`git commit -m "slim(p2): voice ASR to cloudflare worker (drop whisper.cpp/platform_process/voice_process)"`
 

@@ -1,5 +1,6 @@
 # Phase 0 — 基线冻结
 
+> 状态: **已完成** (2026-10-21)。`pre-slim` tag 已打, `slim` 分支已建, 仓库外备份完整 (integrity_check 全 ok), 23 门禁基线日志落盘 `.plan/baseline/2026-10-21/`, 红灯项登记 `02-known-red.md`。端到端基线按 §0.7 延后到 Phase 1 §1.6 冷启动验收 (已通过, 见 `logs/phase-1/01-cold-start.txt`)。
 > 目标：在**不改任何代码**的前提下，冻结可回退的基线、备份不可再生的资产、把 23 个门禁的真实状态记录成对照表。
 > 预计：0.5 天。前置：无。产出：`pre-slim` tag、`slim` 分支、`.plan/baseline/2026-10-21/` 全套日志。
 
@@ -14,8 +15,8 @@ git rev-parse --short HEAD  # 记录：应为 ce1a575
 git log --oneline -1
 ```
 
-- [ ] 确认没有未提交的代码改动（只有文档/计划文件可以）。
-- [ ] 确认 `slim` 分支不存在：`git branch --list slim`（存在则先确认归属）。
+- [x] 确认没有未提交的代码改动（只有文档/计划文件可以）。
+- [x] 确认 `slim` 分支不存在：`git branch --list slim`（存在则先确认归属）。
 - 记录到 `baseline/2026-10-21/00-precheck.txt`。
 
 ## 0.2 停栈（10 min，必须停干净）
@@ -36,7 +37,7 @@ netstat -ano | findstr ":47860 :48777 :43000 :43001"
   powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'supervisor.py|daemon.up.py' } | Select-Object ProcessId,CommandLine"
   ```
   或 `tasklist /V /FO CSV | findstr supervisor.py`。
-- [ ] 43000/43001（NapCat）也停掉，避免备份时 DB 仍在写。
+- [x] 43000/43001（NapCat）也停掉，避免备份时 DB 仍在写。
 - 记录最终端口状态。
 
 ## 0.3 备份 gitignored 资产（15-30 min）
@@ -56,13 +57,13 @@ cp -a .tmp "$DEST"/tmp-state
 robocopy "tools\\napcat-shell" "$(cygpath -w "$DEST")\\napcat-shell" /E /MT:8 /NFL /NDL /NJH /NJS
 ```
 
-- [ ] `data/` 至少包含：`mcp-access.sqlite3`、`chats.sqlite3`、`group_memories.sqlite3`、`mcp-language.sqlite3`、`mcp-chat-media/`。
-- [ ] 对副本做完整性检查：
+- [x] `data/` 至少包含：`mcp-access.sqlite3`、`chats.sqlite3`、`group_memories.sqlite3`、`mcp-language.sqlite3`、`mcp-chat-media/`。
+- [x] 对副本做完整性检查：
   ```bash
   for db in "$DEST"/data/*.sqlite3; do uv run python -c "import sqlite3,sys;c=sqlite3.connect(sys.argv[1]);print(sys.argv[1], c.execute('PRAGMA integrity_check').fetchone()[0])" "$db"; done
   ```
-- [ ] 备份清单写到 `baseline/2026-10-21/01-backup-manifest.txt`（文件数 + 总大小，`du -sh`）。
-- [ ] `yu_bao.md` 在 `water-group/personas/` 内，确认已复制（`ls "$DEST"/personas`）。
+- [x] 备份清单写到 `baseline/2026-10-21/01-backup-manifest.txt`（文件数 + 总大小，`du -sh`）。
+- [x] `yu_bao.md` 在 `water-group/personas/` 内，确认已复制（`ls "$DEST"/personas`）。
 - 说明：`.env` 与 `config.json` 含 Token/群号，**只放仓库外**，不要放进 `.plan/`。
 
 ## 0.4 提交计划文档 + 打 tag + 建分支（5 min）
@@ -75,7 +76,7 @@ git checkout -b slim
 ```
 
 - 若不想把 `.plan/` 入库：先 `echo ".plan/" >> .gitignore` 再提交（但仍建议保留在磁盘，tag 不包含它）。
-- [ ] `git tag --list pre-slim` 有输出；`git branch --show-current` = `slim`。
+- [x] `git tag --list pre-slim` 有输出；`git branch --show-current` = `slim`。
 
 ## 0.5 跑基线门禁（30-60 min）
 
@@ -98,9 +99,9 @@ for g in $gates; do
 done
 ```
 
-- [ ] `gates.log` 里每条的 `rc` 都记录；非 0 的单独看日志判断是**真失败**还是环境问题（端口占用/缺 NapCat）。
-- [ ] 已知可能红的项：`check_publication`（`.plan/` 新文件含 `C:/Users/<user>` 等路径会命中 `PERSONAL_PATH` 正则，且 `.plan/` 不在 `PRIVATE_ROOTS` 白名单——执行前先把它加入白名单或剥离路径，否则基线必红）；`check_group_memory`（人格卡种子数变化会抖）。
-- [ ] 失败项登记到 `baseline/2026-10-21/02-known-red.md`（脚本/原因/是否阻塞后续）。
+- [x] `gates.log` 里每条的 `rc` 都记录；非 0 的单独看日志判断是**真失败**还是环境问题（端口占用/缺 NapCat）。
+- [x] 已知可能红的项：`check_publication`（`.plan/` 新文件含 `C:/Users/<user>` 等路径会命中 `PERSONAL_PATH` 正则，且 `.plan/` 不在 `PRIVATE_ROOTS` 白名单——执行前先把它加入白名单或剥离路径，否则基线必红）；`check_group_memory`（人格卡种子数变化会抖）。
+- [x] 失败项登记到 `baseline/2026-10-21/02-known-red.md`（脚本/原因/是否阻塞后续）。
 - **注意**：`check_mcp_qq_extensions` 间接依赖 Pillow（经 `mcp_chat_media.py:28 from PIL import Image`），本路线保留媒体，应能跑；若环境缺 Pillow，先 `uv sync` 再重跑。`check_mcp_language_learning` 不依赖 Pillow/opencc，无需特殊处理。opencc 全仓仅 `chatlocal/voice.py:73` 使用（voice 在 Phase 3 删除集），当前环境未装 opencc。
 
 ## 0.6 环境快照（5 min）
@@ -112,8 +113,8 @@ uv pip freeze > "$OUT/04-pip-freeze.txt"
 git ls-files | wc -l >> "$OUT/03-rev.txt"
 ```
 
-- [ ] 记录 `fastapi/uvicorn/mcp/httpx/websockets/Pillow/jsonschema/requests` 实际版本（`pip-freeze` 内可查）。
-- [ ] 记录 `data/` 各库大小与 `grants` 表当前 epoch（只读）：
+- [x] 记录 `fastapi/uvicorn/mcp/httpx/websockets/Pillow/jsonschema/requests` 实际版本（`pip-freeze` 内可查）。
+- [x] 记录 `data/` 各库大小与 `grants` 表当前 epoch（只读）：
   ```bash
   uv run python - <<'PY'
   import sqlite3, json
@@ -130,15 +131,15 @@ git ls-files | wc -l >> "$OUT/03-rev.txt"
 > 现在重启只会把刚停干净的栈又跑起来，Phase 1 开头又要停，来回折腾。
 
 - [x] 栈已停干净（§0.2 netstat/taskkill 核对，47860/48777/43000/43001 全无 LISTENING）。
-- [ ] 端到端基线（47860/48777 在线 + heartbeat 新鲜 + session id + 一次真实 @ 回复）**留到 Phase 1 §1.6 验收时做**，起栈用 `start-bot.pyw` explorer 代启。
+- [x] 端到端基线（47860/48777 在线 + heartbeat 新鲜 + session id + 一次真实 @ 回复）**留到 Phase 1 §1.6 验收时做**，起栈用 `start-bot.pyw` explorer 代启。（Phase 1 §1.6 已验收通过，见 `logs/phase-1/01-cold-start.txt`。）
 
 ## 0.8 退出标准与回滚
 
 **退出标准**
-- [ ] `pre-slim` tag 存在且指向含计划文档的 commit；当前分支 `slim`。
-- [ ] 仓库外备份完整，`integrity_check` 全 `ok`，清单落盘。
-- [ ] 23 条门禁全部有日志；红灯项已登记并判断是否阻塞。
-- [ ] 端到端基线（或明确的环境阻塞说明）已记录。
+- [x] `pre-slim` tag 存在且指向含计划文档的 commit；当前分支 `slim`。
+- [x] 仓库外备份完整，`integrity_check` 全 `ok`，清单落盘。
+- [x] 23 条门禁全部有日志；红灯项已登记并判断是否阻塞。
+- [x] 端到端基线（或明确的环境阻塞说明）已记录。（延后到 Phase 1 §1.6 完成。）
 
 **回滚**：`git checkout <原分支>`；删 `slim` 分支与 tag；从备份目录恢复 `data/`（仅当数据被动过）。备份目录：仓库同级 `Documents/Tulpa-backup-20261021`（非 `%USERPROFILE%`，避免删备份要管理员权限）。
 
