@@ -1,7 +1,5 @@
 # Third-party components
 
-For the Linux source package, see [Linux third-party components](LINUX_THIRD_PARTY.md). The desktop distribution notices below remain applicable to its bundled components.
-
 The MIT license at the repository root applies to Tulpa's own code. It does not
 relicense the dependencies, model weights, browser runtime or external services.
 The portable ZIP is an aggregate distribution. Original license and copyright

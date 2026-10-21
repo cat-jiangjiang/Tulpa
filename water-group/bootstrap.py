@@ -31,7 +31,6 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(ROOT_DIR))
 
 NAPCAT_DIR = ROOT_DIR / "tools" / "napcat-shell"
-FWD_SCRIPT = ROOT_DIR / "water-group" / "fwd.py"
 CONFIG_FILE = ROOT_DIR / "water-group" / "config.json"
 CONFIG_EXAMPLE = ROOT_DIR / "water-group" / "config.example.json"
 STATUS_FILE = ROOT_DIR / "water-group" / "status.json"
@@ -446,22 +445,6 @@ def ensure_tulpa():
         return True, f"启动成功且 MCP 握手就绪 ({msg})"
     return False, f"Tulpa 启动就绪屏障未通过: {msg}"
 
-def ensure_forwarder():
-    if is_port_open(18777):
-        return True, "在线"
-    
-    if not FWD_SCRIPT.exists():
-        return False, f"未找到转发脚本: {FWD_SCRIPT}"
-    
-    print("[启动] 正在后台启动端口转发 (18777 -> 48777)...")
-    start_process_detached([get_python_exe(), str(FWD_SCRIPT)], cwd=str(ROOT_DIR), log_name="fwd.log")
-    
-    for _ in range(8):
-        time.sleep(0.5)
-        if is_port_open(18777):
-            return True, "启动成功"
-    return False, "端口 18777 监听失败 (查看 water-group/logs/fwd.log)"
-
 def run_sync():
     try:
         from water_group.sync_groups import inspect_and_sync
@@ -506,15 +489,12 @@ def main():
         tulpa_port_ok = is_port_open(48777) and is_port_open(47860)
         tulpa_ready, tulpa_msg = check_tulpa_mcp_health(48777) if tulpa_port_ok else (False, "端口未开放")
         tulpa_ok = tulpa_port_ok and tulpa_ready
-        fwd_ok = is_port_open(18777)
     else:
         napcat_ok, napcat_msg = ensure_napcat()
         tulpa_ok, tulpa_msg = ensure_tulpa()
-        fwd_ok, fwd_msg = ensure_forwarder()
 
     print(f"1. NapCat OneBot  : {'[OK] 在线' if napcat_ok else '[FAIL] 未运行'} (HTTP: 43000, WS: 43001, WebUI: 46099)")
     print(f"2. Tulpa Backend  : {'[OK] ' + tulpa_msg if tulpa_ok else '[FAIL] 未就绪 (' + tulpa_msg + ')'} (Web: 47860, MCP: 48777)")
-    print(f"3. Port Forwarder : {'[OK] 在线' if fwd_ok else '[FAIL] 未运行'} (18777 -> 48777)")
 
     if not (napcat_ok and tulpa_ok):
         print("\n[ERROR] 核心后台服务未完全就绪，请检查上述报错。")

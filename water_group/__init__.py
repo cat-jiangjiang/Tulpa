@@ -30,7 +30,7 @@ if _wg_str not in __path__:
 
 _SUBMODULES = frozenset({
     "memory_engine", "memory_commands", "memory_format",
-    "bootstrap", "sync_groups", "sync_personas", "fwd",
+    "bootstrap", "sync_groups",
 })
 __all__ = sorted(_SUBMODULES)
 

@@ -178,7 +178,7 @@ def is_our_instance(pid):
     dialog belonging to it must be left alone -- killing their client because it
     happened to crash would be far worse than a stray window.
     """
-    import bootstrap
+    from water_group import bootstrap
 
     account = bootstrap.configured_account()
     if not account:
@@ -193,7 +193,7 @@ def is_our_instance(pid):
 
 
 def relaunch():
-    import bootstrap
+    from water_group import bootstrap
 
     try:
         ok, note = bootstrap.ensure_napcat()
@@ -212,7 +212,7 @@ def kill_injected_instances():
     still holds the shared profile and fights whatever gets injected next. That
     is how ten of them accumulated while the log kept reporting a clean relaunch.
     """
-    import bootstrap
+    from water_group import bootstrap
 
     try:
         return bootstrap.kill_stale_instances()
@@ -223,7 +223,7 @@ def kill_injected_instances():
 
 def main():
     log("start")
-    import bootstrap
+    from water_group import bootstrap
 
     sandbox = bootstrap.sandbox_dll()
     if sandbox:

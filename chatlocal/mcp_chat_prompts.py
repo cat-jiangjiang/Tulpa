@@ -14,7 +14,7 @@ import time
 from .mcp_chat_hints import habit_hints
 from .mcp_chat_limits import WAIT_TIMEOUT_SECONDS
 
-ROOT = Path(__file__).resolve().parent / 'prompts' / 'mcp_chat'
+ROOT = Path(__file__).resolve().parent.parent / 'water-group' / 'personas'
 BEHAVIOR = (ROOT / 'behavior.md').read_text('utf-8')
 EXAMPLES = json.loads((ROOT / 'examples.json').read_text('utf-8'))
 REVISION = 'group-chat-v2-' + hashlib.sha256((BEHAVIOR + json.dumps(EXAMPLES, ensure_ascii=False)).encode() + Path(__file__).read_bytes()).hexdigest()[:12]

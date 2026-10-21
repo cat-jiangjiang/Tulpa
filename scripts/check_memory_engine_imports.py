@@ -34,7 +34,7 @@ SCANNED = [
 ]
 WATER_GROUP_MODULES = {
     "memory_engine", "memory_commands", "memory_format",
-    "bootstrap", "sync_groups", "sync_personas", "fwd",
+    "bootstrap", "sync_groups",
 }
 
 RUNTIME_PROBE = """
@@ -55,7 +55,7 @@ STAR_PROBE = """
 ns = {}
 exec('from water_group import *', ns)
 for name in ['memory_engine','memory_commands','memory_format','bootstrap',
-             'sync_groups','sync_personas','fwd']:
+             'sync_groups']:
     assert name in ns, name
 assert 'sys' not in ns and 'Path' not in ns and 'importlib' not in ns
 print('STAR_OK')
@@ -67,7 +67,7 @@ import water_group
 assert 'water_group.bootstrap' not in sys.modules, 'bridge must not eager-import bootstrap'
 assert sorted(water_group.__all__) == sorted([
     'memory_engine','memory_commands','memory_format',
-    'bootstrap','sync_groups','sync_personas','fwd'])
+    'bootstrap','sync_groups'])
 print('LAZY_OK')
 """
 
@@ -101,7 +101,7 @@ def test_no_bare_imports():
 def test_no_string_import():
     """importlib.import_module would bypass the AST check above."""
     import re
-    pattern = re.compile(r"""import_module\(\s*['"](?:memory_engine|memory_commands|memory_format|bootstrap|sync_groups|sync_personas|fwd)['"]""")
+    pattern = re.compile(r"""import_module\(\s*['"](?:memory_engine|memory_commands|memory_format|bootstrap|sync_groups)['"]""")
     hits = []
     for target in SCANNED:
         base = ROOT / target

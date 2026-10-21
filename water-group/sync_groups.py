@@ -11,7 +11,6 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if __package__ in (None, ""):
     sys.path.insert(0, ROOT_DIR)
 
-from water_group.sync_personas import sync_personas
 from water_group.memory_engine import get_memory_engine
 from chatlocal import mcp_chat_prompts as prompts
 from chatlocal.sqlite_util import connect as sqlite_connect
@@ -72,11 +71,6 @@ def get_active_sessions(db_path):
 
 
 def inspect_and_sync():
-    # 1. 自动同步角色卡 Markdown
-    synced_personas = sync_personas()
-    if synced_personas:
-        print(f"同步角色卡: {', '.join(synced_personas)}")
-
     config = load_config()
     ob_groups = get_onebot_groups(config["onebot_http_url"], config["onebot_token"])
     active_sessions = get_active_sessions(DB_PATH)
