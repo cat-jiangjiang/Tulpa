@@ -1,3 +1,0 @@
-# Full Linux application backend without the legacy Gradio interface.
--r mcp.txt
-deepseek-harness-sdk==0.1.5rc1
