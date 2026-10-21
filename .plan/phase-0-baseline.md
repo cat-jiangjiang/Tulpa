@@ -8,7 +8,7 @@
 ## 0.1 预检（5 min）
 
 ```bash
-cd C:/Users/VerNe/Downloads/Documents/Tulpa
+cd <repo-root>   # 本仓库根目录
 git status --short          # 期望只有 doc/WATER_GROUP_ONLY_PLAN.md 与 .plan/ 未跟踪
 git rev-parse --short HEAD  # 记录：应为 ce1a575
 git log --oneline -1
@@ -99,7 +99,7 @@ done
 ```
 
 - [ ] `gates.log` 里每条的 `rc` 都记录；非 0 的单独看日志判断是**真失败**还是环境问题（端口占用/缺 NapCat）。
-- [ ] 已知可能红的项：`check_publication`（`.plan/` 新文件含 `C:/Users/VerNe` 等路径会命中 `PERSONAL_PATH` 正则，且 `.plan/` 不在 `PRIVATE_ROOTS` 白名单——执行前先把它加入白名单或剥离路径，否则基线必红）；`check_group_memory`（人格卡种子数变化会抖）。
+- [ ] 已知可能红的项：`check_publication`（`.plan/` 新文件含 `C:/Users/<user>` 等路径会命中 `PERSONAL_PATH` 正则，且 `.plan/` 不在 `PRIVATE_ROOTS` 白名单——执行前先把它加入白名单或剥离路径，否则基线必红）；`check_group_memory`（人格卡种子数变化会抖）。
 - [ ] 失败项登记到 `baseline/2026-10-21/02-known-red.md`（脚本/原因/是否阻塞后续）。
 - **注意**：`check_mcp_qq_extensions` 间接依赖 Pillow（经 `mcp_chat_media.py:28 from PIL import Image`），本路线保留媒体，应能跑；若环境缺 Pillow，先 `uv sync` 再重跑。`check_mcp_language_learning` 不依赖 Pillow/opencc，无需特殊处理。opencc 全仓仅 `chatlocal/voice.py:73` 使用（voice 在 Phase 3 删除集），当前环境未装 opencc。
 
@@ -123,17 +123,14 @@ git ls-files | wc -l >> "$OUT/03-rev.txt"
   PY
   ```
 
-## 0.7 重启栈 + 端到端基线（15 min）
+## 0.7 端到端基线（留到 Phase 1 §1.6，本 Phase 不重启栈）
 
-```bash
-uv run python water-group/daemon/up.py
-uv run python water-group/daemon/up.py --status
-```
+> Phase 0 只冻结基线（tag/分支/备份/门禁/快照已做），不重启栈、不跑真实 @。
+> 重启栈 + 真实 @ 回复本质是 Phase 1 §1.6 冷启动验收的事，且**起栈必须用 `start-bot.pyw` 经 explorer 代启**（见 AGENTS.md §0/§6.1），不能用 `up.py` 起栈——代理沙箱里 `up.py → supervisor → watchdog → NapCat → QQ` 会注入 `tsbx.dll`，QQ 约 20 秒后必崩（`0xC06D007F`），watchdog 无限重注入。
+> 现在重启只会把刚停干净的栈又跑起来，Phase 1 开头又要停，来回折腾。
 
-- [ ] 47860/48777 双端口在线、`wg_heartbeat` 新鲜、`wg_session.txt` 有 session id。
-- [ ] 在群里 @ 一次，确认走通并记录：`wg_events.jsonl` 末条、`wg_replied.jsonl` 末条、`reply.py --list` 输出。
-- [ ] 记录 `data/` 在回复前后无异常增长（`ls -l`）。
-- 说明：若 NapCat 注入失败（QQ 未登录/沙箱），记录现象并跳过，不阻塞 Phase 1（Phase 1 验收时需要真实回复）。
+- [x] 栈已停干净（§0.2 netstat/taskkill 核对，47860/48777/43000/43001 全无 LISTENING）。
+- [ ] 端到端基线（47860/48777 在线 + heartbeat 新鲜 + session id + 一次真实 @ 回复）**留到 Phase 1 §1.6 验收时做**，起栈用 `start-bot.pyw` explorer 代启。
 
 ## 0.8 退出标准与回滚
 
@@ -143,7 +140,7 @@ uv run python water-group/daemon/up.py --status
 - [ ] 23 条门禁全部有日志；红灯项已登记并判断是否阻塞。
 - [ ] 端到端基线（或明确的环境阻塞说明）已记录。
 
-**回滚**：`git checkout <原分支>`；删 `slim` 分支与 tag；从 `%USERPROFILE%\Tulpa-backup\20261021` 恢复 `data/`（仅当数据被动过）。
+**回滚**：`git checkout <原分支>`；删 `slim` 分支与 tag；从备份目录恢复 `data/`（仅当数据被动过）。备份目录：仓库同级 `Documents/Tulpa-backup-20261021`（非 `%USERPROFILE%`，避免删备份要管理员权限）。
 
 ---
 

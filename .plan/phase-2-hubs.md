@@ -211,7 +211,7 @@ uv run python scripts/check_group_memory.py
 
 ## 2.7 voice 转写云端化（1 天，复核新增）
 
-> 决策：**保留 voice 转写能力**（水群 QQ 语音条 → 文字让 Agent 能读懂），但把 ASR 后端从本地 `whisper.cpp` 换成云端 Cloudflare Worker（`https://whisper.yuuverne.site`，已部署，token `00ba9ee6...`，turbo 模型实测返回正常中文）。
+> 决策：**保留 voice 转写能力**（水群 QQ 语音条 → 文字让 Agent 能读懂），但把 ASR 后端从本地 `whisper.cpp` 换成云端 Cloudflare Worker（`https://whisper.yuuverne.site`，已部署，token 进 `.env` 的 `VOICE_CF_TOKEN`，不入库；turbo 模型实测返回正常中文）。
 > 不挂 TTS / 不发语音（当前代码零 TTS，不在本次范围）。
 
 ### 依赖闭包（复核 voice.py 实际引用）

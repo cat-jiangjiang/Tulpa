@@ -123,23 +123,31 @@ uv pip show requests | head -5   # 取实际版本
 
 ## 1.6 冷启动验收（必须逐条过）
 
+> **起栈方式**（AGENTS.md §0/§6.1）：唯一入口是 `water-group/start-bot.pyw`，**必须由 explorer 代启**。不能用 `uv run python water-group/daemon/up.py` 起栈——代理沙箱里 `up.py → supervisor → watchdog → NapCat → QQ` 会注入 `tsbx.dll`，QQ 约 20 秒后必崩（`0xC06D007F`），watchdog 无限重注入。`up.py` 只用来 `--stop`/`--status`（只读复查）。
+> `start-bot.pyw` 内部会调 supervisor，supervisor 的 CHILDREN `"app"` 已在 §1.2 指向 `server_wg.py`，所以 explorer 代启 `start-bot.pyw` 自然起的是新入口。
+
 ```bash
+# 1. 先停干净（up.py --stop + 核对端口，复用 Phase 0 §0.2 的 taskkill 兜底）
 uv run python water-group/daemon/up.py --stop
-netstat -ano | findstr ":47860 :48777"        # 应为空
-uv run python water-group/daemon/up.py
-sleep 8
+netstat -ano | findstr "LISTENING" | findstr ":47860 :48777"   # 应为空；有残留按 §0.2 taskkill
+
+# 2. explorer 代启 start-bot.pyw（不要用 up.py 起，不要在沙箱里直接起）
+.venv/Scripts/python.exe -c "import subprocess,pathlib; subprocess.Popen(['explorer.exe', str(pathlib.Path('water-group/start-bot.pyw').resolve())])"
+sleep 12   # start-bot.pyw 幂等；端口已在则什么都不做
+
+# 3. 只读复查（up.py --status 是只读的，可用）
 uv run python water-group/daemon/up.py --status
-netstat -ano | findstr ":47860 :48777"        # 两个都在监听
-curl -s http://127.0.0.1:47860/               # {"ok":true,...}
-tail -40 water-group/logs/app.log             # uvicorn + MCP 启动日志
+netstat -ano | findstr "LISTENING" | findstr ":47860 :48777"   # 两个都在监听
+curl -s http://127.0.0.1:47860/                                # {"ok":true,...}
+tail -40 water-group/logs/app.log                              # uvicorn + MCP 启动日志
 ```
 
-- [ ] `data/mcp-access.sqlite3` 的 `settings` 行是 `(1, 48777)`。
+- [ ] `data/mcp-access.sqlite3` 的 `settings` 行是 `(1, 1, 48777)`。
 - [ ] `bootstrap --status-only` 的 MCP ping 返回 200/401（`bootstrap.check_tulpa_mcp_health`）。
 - [ ] collector 建会话：`.tmp/wg_session.txt` 有值、`.tmp/wg_heartbeat` 是新的（<30s）。
-- [ ] 一次真实 @ 回复：`reply.py <event_id> "..."` 成功；`wg_replied.jsonl` 落一条。
-- [ ] **自愈测试**：`taskkill /F /PID <server_wg pid>`，15s 内 supervisor 重启，48777 重新监听，`reply.py --list` 仍可用。
-- [ ] 失败排查顺序：`app.log` → `settings` 行 → lifespan 是否被覆盖 → 端口是否被 bootstrap 双起。
+- [ ] 一次真实 @ 回复：`reply.py --list` 看谁 @ 了我 → `reply.py <event_id> "..."` 成功；`wg_replied.jsonl` 落一条。
+- [ ] **自愈测试**：`taskkill /F /PID <server_wg pid>`（精确 PID，勿用 `/IM python.exe` 通配），15s 内 supervisor 重启，48777 重新监听，`reply.py --list` 仍可用。
+- [ ] 失败排查顺序：`app.log` → `settings` 行 → lifespan 是否被覆盖 → 端口是否被 bootstrap 双起 → 是否误用 `up.py` 起栈导致 QQ 崩。
 
 ## 1.7 提交
 

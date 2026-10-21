@@ -41,3 +41,8 @@ water-group/logs/
 # WorkBuddy workspace memory: real member QQ numbers, never publish
 .workbuddy/
 
+# Phase execution logs: gate outputs, snapshots, personal-path-laden tracebacks.
+# Kept on disk as process evidence; not published. check_publication would flag them.
+.plan/baseline/
+.plan/logs/
+
