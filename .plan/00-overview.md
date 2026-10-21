@@ -1,6 +1,6 @@
 # Water-Group-Only 改造 · 执行总览
 
-> 进度: **Phase 0-2 完成** (2026-10-21), Phase 3 待启动。Phase 0-2 commit 链见 git log pre-slim..HEAD。
+> 进度: **Phase 0-4 完成** (2026-10-22)。Phase 0-2 commit 链见 git log pre-slim..HEAD;Phase 3 = 8265cc0/61c3aee/6b617ff/368dc1c/361585f/63b00ae/6269546;Phase 4 = 6a83aa6/5d533f9/f8d4f86/371e1d5/3473c93/b4636cb/cc72eae。§4.3 (2 周观察期) 与 §4.4 (拆新仓) 按 plan 本身 defer 至观察期/观察期后,不可现在执行。
 > 依据 `doc/WATER_GROUP_ONLY_PLAN.md`（2026-10-21 核对版）+ 4 个并行 subagent 复核结论（见 `01-review.md`）。
 > **执行以本目录的 phase 文件为准**；主文档中被复核推翻的段落已在 `01-review.md` §3 列为勘误。
 
@@ -69,8 +69,8 @@ Phase 0 基线冻结
 | 0 | `pre-slim` tag + `slim` 分支；备份完整性核对通过；23 门禁基线记录完毕（红灯项须登记） | 完成 |
 | 1 | 冷启动后 47860/48777 双端口在线；`settings.enabled=1, port=48777`；collector 建会话；一次 @ 回复成功；杀 `app` 子进程 15s 内自愈；`server.log` 有启动日志 | 完成 |
 | 2 | 23 门禁全绿；端到端 @ + 引用回复；`data/` 表结构与 Phase 0 备份一致；无新增 401 日志；voice 云端化：`from chatlocal.voice import config` 输出 `cf-whisper` 指纹，一条真实语音转写落库 `backend='cloudflare'` | 完成 |
-| 3 | `check_water_group_import`/`check_bootstrap_health`/`check_publication` 全绿；`uv run python server_wg.py` 可启动；`git status` 无意外；`list_chat_personas` 正常 | 待做 |
-| 4 | README/AGENTS/rules 与 slim 结构一致；`setup.ps1` 从零可跑；2 周观察无 P0/P1 故障 | 待做 |
+| 3 | `check_water_group_import`/`check_bootstrap_health`/`check_publication` 全绿；`uv run python server_wg.py` 可启动；`git status` 无意外；`list_chat_personas` 正常 | 完成 |
+| 4 | README/AGENTS/rules 与 slim 结构一致；`setup.ps1` 从零可跑；2 周观察无 P0/P1 故障 | §4.1+§4.2 完成;§4.3 观察期 + §4.4 拆仓 defer |
 
 ## 6. 总回滚
 

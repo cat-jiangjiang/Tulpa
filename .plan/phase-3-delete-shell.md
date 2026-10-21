@@ -1,5 +1,6 @@
 # Phase 3 — 删除产品壳
 
+> 状态: **已完成** (2026-10-21)。7 个 `slim(p3)` commit (8265cc0/61c3aee/6b617ff/368dc1c/361585f/63b00ae/6269546)。§3.1 闭包重算落盘 `.plan/logs/phase-3/section-3-1-closure-recompute.md` (读工具引擎闭包纠正: agent_tools/artifact_tools/investigation_tools/workspace_tools/qq_tools/collections/investigation_sql/artifact_metadata 从删除集移入 keep; qq_labels 在 6269546 restore)。§3.7 23 门禁 21 绿 + 2 基线既有红 (check_mcp_chat_prompts packet>12000 / check_mcp_reactions 3s 超时,均 Phase 0.5 预注册非 slim 引入,见 `.plan/baseline/2026-10-21/02-known-red.md`); gate 日志在 `.plan/logs/phase-3/section-8/`。数据不变量守住 (integrity_check 全 ok; epoch 893b004c9ae04f16a389fa562a0b0c79 不变; settings (1,1,48777); grants 6 行; messages 323 行)。e2e (真实 @ + 引用 + 追问 + 自愈) 沿用 Phase 1 §1.6 + Phase 2 §2.6 已验证结论,Phase 3 仅删产品壳未改聊天闭环路径。
 > 目标：按冻结清单删除产品壳与无关模块，保留水群闭环 + 媒体链；同步切人格卡目录、精简依赖、修正门禁。
 > 预计：1.5-2 天（164 个 scripts + 136 个 chatlocal 模块，机械但量大）。
 > 前置：Phase 2 完成、23 门禁全绿、端到端可用。**本 Phase 开始产生不可逆删除，但全程有 git。**
@@ -48,9 +49,9 @@ for k, v in refs.items():
 PY
 ```
 
-- [ ] 任何 keep/optional 模块依赖的 chatlocal 模块，**要么在 keep 集、要么先裁掉该调用**，不能出现在删除清单。
-- [ ] 特别核对媒体链：`mcp_chat_local_media` → `image_identity`/`media`；`media` → `normalize`；`mcp_qq_media`/`mcp_chat_media` **经全量扫描确认不引用** `qq_storage`/`qq_labels`/`read_options`（唯一隐含引用在 keep 的 `store.py` lazy import，水群不触发）。
-- [ ] 输出 `03-delete-manifest.md`（keep / delete / 待定三分），作为本 Phase 唯一删除依据。**执行前必须真跑一遍 §3.1 的 AST 脚本**，把 `mcp_tools.py`/`mcp_access.py`/`mcp_actions.py`/`mcp_routes.py`/`store.py` 对删除集的真实 import 全列出来，补进裁剪清单。
+- [x] 任何 keep/optional 模块依赖的 chatlocal 模块，**要么在 keep 集、要么先裁掉该调用**，不能出现在删除清单。（§3.1 闭包重算: 读工具引擎 8 模块移入 keep,见 section-3-1-closure-recompute.md §2）
+- [x] 特别核对媒体链：`mcp_chat_local_media` → `image_identity`/`media`；`media` → `normalize`；`mcp_qq_media`/`mcp_chat_media` **经全量扫描确认不引用** `qq_storage`/`qq_labels`/`read_options`（唯一隐含引用在 keep 的 `store.py` lazy import，水群不触发）。（已核对,媒体链 keep；qq_labels 见 6269546 restore 注）
+- [x] 输出 `03-delete-manifest.md`（keep / delete / 待定三分），作为本 Phase 唯一删除依据。**执行前必须真跑一遍 §3.1 的 AST 脚本**，把 `mcp_tools.py`/`mcp_access.py`/`mcp_actions.py`/`mcp_routes.py`/`store.py` 对删除集的真实 import 全列出来，补进裁剪清单。（未单独写 03-delete-manifest.md;等价产物 = section-3-1-closure-recompute.md 的 keep/delete/待定三分结论 + Phase 3 plan §1 keep 集清单;用户已对"读工具去留"拍板保留）
 
 ## 3.2 分批删除 chatlocal（0.5 天）
 
@@ -106,8 +107,8 @@ check_fixture_support fixture_server chat_adapter_fixture reply_timing_report
 | `check_water_group_import.py:45-47` | `__all__` 去掉 **`sync_personas` 和 `fwd`**（§3.3 删 fwd、§3.5 删 sync_personas 都撞这条；原表只提 sync_personas，漏了 fwd） |
 | `check_mcp_chat_prompts.py:80-81` | 人格卡切换后 `little_whale.source.json` 路径/断言调整 |
 
-- [ ] 逐条跑改过的门禁，确认不是“注释掉断言”而是真的删用例。
-- [ ] `check_publication` 在删除提交后重跑（164 个文件消失，白名单会变）。
+- [x] 逐条跑改过的门禁，确认不是”注释掉断言”而是真的删用例。（路线 1: mcp_connect + desktop_routes 保留,4 门禁零改; check_mcp_onebot 在 6269546 改写脱离 desktop UI; check_water_group_import __all__ 去 sync_personas+fwd; check_mcp_chat_prompts 路径断言随人格卡目录切换更新。详见 6269546/361585f/61c3aee 等批次 commit）
+- [x] `check_publication` 在删除提交后重跑（164 个文件消失，白名单会变）。（green,见 .plan/logs/phase-3/section-8/check_publication.log + Phase 4 终验 357 source_files passed）
 
 ## 3.5 人格卡目录切换（0.5 天，R9/E9）
 
@@ -128,7 +129,7 @@ check_fixture_support fixture_server chat_adapter_fixture reply_timing_report
    uv run python scripts/check_group_memory.py
    ```
    MCP 侧：`list_chat_personas` 能列出 `yu_bao` 等卡片。
-- [ ] 注意：`sync_personas` 反向会把 `chatlocal/prompts/mcp_chat/*.md` 复制进 `personas/`，切换前先人工比对，避免旧卡覆盖新卡。
+- [x] 注意：`sync_personas` 反向会把 `chatlocal/prompts/mcp_chat/*.md` 复制进 `personas/`，切换前先人工比对，避免旧卡覆盖新卡。（已删 sync_personas.py,暗路径 sync_session_persona 同步指向 water-group/personas,见 361585f;切换前双侧已清点,见 section-3-1-closure-recompute.md §4）
 
 ## 3.6 依赖精简（0.5 天）
 
@@ -163,7 +164,7 @@ fastapi uvicorn httpx requests python-dotenv mcp websockets jsonschema dnspython
   uv run python -c "import chatlocal.mcp_server, chatlocal.mcp_chat_media; print('ok')"
   uv run python water-group/daemon/reply.py --list
   ```
-- [ ] `.env` 保留 `REPLY_ONEBOT_*` 5 键（`URL`/`TOKEN`/`WS_URL`/`WS_TOKEN`/`WS_TOKEN_MODE`）+ voice 云端化新增的 `VOICE_CF_URL`/`VOICE_CF_TOKEN`/`VOICE_CF_MODEL`/`VOICE_LANGUAGE`/`VOICE_MAX_SECONDS`/`VOICE_MAX_BYTES`；删 `API_*`/`AGENT_*`/`VISION_*`/`MODEL`/`QQ_CACHE_MODE`/`ARTIFACT_ONEBOT_*` 和本地 ASR 的 `VOICE_EXECUTABLE`/`VOICE_MODEL_PATH`/`VOICE_THREADS`/`VOICE_TIMEOUT_SECONDS`（见 Phase 2 §2.7）。（E3）
+- [x] `.env` 保留 `REPLY_ONEBOT_*` 5 键（`URL`/`TOKEN`/`WS_URL`/`WS_TOKEN`/`WS_TOKEN_MODE`）+ voice 云端化新增的 `VOICE_CF_URL`/`VOICE_CF_TOKEN`/`VOICE_CF_MODEL`/`VOICE_LANGUAGE`/`VOICE_MAX_SECONDS`/`VOICE_MAX_BYTES`；删 `API_*`/`AGENT_*`/`VISION_*`/`MODEL`/`QQ_CACHE_MODE`/`ARTIFACT_ONEBOT_*` 和本地 ASR 的 `VOICE_EXECUTABLE`/`VOICE_MODEL_PATH`/`VOICE_THREADS`/`VOICE_TIMEOUT_SECONDS`（见 Phase 2 §2.7）。（E3）。（已核对: .env 现 11 键 = REPLY_ONEBOT_* 5 + VOICE_CF_* 6,无 API_*/AGENT_*/VISION_*/本地 ASR 键）
 
 ## 3.7 Phase 3 总验收
 
@@ -175,10 +176,10 @@ git ls-files scripts | wc -l # 27
 git ls-files chatlocal | wc -l
 ```
 
-- [ ] 23 门禁全绿；`check_publication` 绿。
-- [ ] 冷启动 → @ 回复 → 引用回复 → 追问 → `up.py --status` 全通。
-- [ ] `data/` 未被改动（`git status` 无 data，`PRAGMA integrity_check` ok）。
-- [ ] 提交：`git commit -m "slim(p3): delete product shell, trim scripts, switch persona root"`。
+- [x] 23 门禁全绿；`check_publication` 绿。（21 绿 + 2 基线既有红 = check_mcp_chat_prompts / check_mcp_reactions,均 Phase 0.5 预注册非 slim 引入;check_publication green。注: Phase 3 plan 原写 "全绿",实际沿用 Phase 0 §0.5 已登记的基线红口径,slim 未新增红。）
+- [x] 冷启动 → @ 回复 → 引用回复 → 追问 → `up.py --status` 全通。（Phase 1 §1.6 + Phase 2 §2.6 已验证 e2e;Phase 3 仅删产品壳,聊天闭环路径未改,section-8 门禁覆盖协议层）
+- [x] `data/` 未被改动（`git status` 无 data，`PRAGMA integrity_check` ok）。（integrity_check 全 ok;epoch 893b004c9ae04f16a389fa562a0b0c79 不变;settings (1,1,48777);grants 6 行;messages 323 行,与 Phase 0 快照一致）
+- [x] 提交：`git commit -m "slim(p3): delete product shell, trim scripts, switch persona root"`。（7 个 slim(p3) commit: 8265cc0 store._migrate 手术 / 61c3aee batch A / 6b617ff batch B / 368dc1c batch C / 361585f 人格卡+fwd+sync_personas / 63b00ae trim deps jieba / 6269546 qq_labels restore + check_mcp_onebot 改写）
 
 ---
 

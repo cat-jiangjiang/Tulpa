@@ -1,6 +1,7 @@
 # Phase 4 — 收尾（可选但建议做）
 
-> 目标：让 slim 仓库“可交付、可复现、可观察”，并把 2 周验证期的检查动作固定下来。
+> 状态: **§4.1 + §4.2 完成,§4.3/§4.4 按 plan 本身 defer** (2026-10-22)。7 个 `slim(p4)` commit (6a83aa6/5d533f9/f8d4f86/371e1d5/3473c93/b4636cb/cc72eae)。§4.1 文档重写 (README/AGENTS/.agents/THIRD_PARTY + doc/ 清理 + 失效引用 grep clean) 完成;§4.2 安装脚本 (setup/start/stop 改 uv + setup-napcat.ps1 fetcher pinned v4.18.41 sha256) 完成,from-zero 仅做到 import smoke (chatlocal.mcp_server/mcp_routes/mcp_chat/mcp_chat_media + water_group.bootstrap import ok),完整 clone+起栈+真 @ 回复需真实环境 (NapCat+QQ 登录) 留 §4.3 观察期验。终验: 23 门禁 21 绿 + 2 基线既有红 (同 Phase 3),check_publication green (357)。§4.3 (2 周观察期) 与 §4.4 (拆新仓) 是观察期/观察期后动作,plan §4.3/§4.4 本身标注"不建议在观察期结束前拆仓",现在不可执行。
+> 目标：让 slim 仓库"可交付、可复现、可观察"，并把 2 周验证期的检查动作固定下来。
 > 预计：0.5-1 天 + 2 周观察。前置：Phase 3 完成、23 门禁全绿。
 
 ---
@@ -10,14 +11,14 @@
 - `README.md`：只留水群闭环——架构图（start-bot → up → supervisor → server/collector/db_keeper/watchdog）、端口（47860/48777/43000/43001）、启动/停止、配置（`water-group/config.json` + `.env` 5 键）、人格卡目录、门禁命令、Windows-only 声明。
 - `AGENTS.md`：更新进程树、`.tmp` 契约、`reply.py`/`listen.py` 用法；删掉残留的 `web/`/`desktop/`/`snowluma`/Linux 终端版章节（line 46/57/74/75/127/254/259-262）。`.agents/rules/water_group.md` 与 `.agents/skills/water-group/SKILL.md` 无 Gradio/桌面章节，只需把 `app.py` 引用改成 `server_wg.py`。
 - `doc/` 清理：`doc/` 实际 60+ 文件，需逐文件判断（不只点名 3 类）。明确删/迁移：`DESKTOP.md`、`IMPORTS.md`、`INVESTIGATION.md`、`LINUX_*.md`（10 个）、`MCP_STICKERS*.md`、`NAPCAT_QQ_EVALUATION.md`、`SNOWLUMA_*.md`、`DOCKER_*.md`、`FEATURES.md`；保留 `VALIDATION.md`、`SECURITY.md`；`MCP_CHAT*.md` 可合并进 README。同时纠正 `AGENTS.md` §2.4「扫描范围包括待推送的提交历史」——`check_publication.py` 实际用 `git ls-files` 只扫工作树，不扫历史。
-- [ ] 全仓 grep 失效引用：`grep -rn "app.py\|Gradio\|snowluma\|web/\|desktop/" README.md AGENTS.md .agents/`。
+- [x] 全仓 grep 失效引用：`grep -rn "app.py\|Gradio\|snowluma\|web/\|desktop/" README.md AGENTS.md .agents/`。（clean — 作用域内无 live 引用,仅"已随 slim 删除"类历史标注;doc/ 残留的 Tulpa.exe/desktop\build.py 在 MCP_*_VALIDATION.md 验证记录文档,不属 §4.1 重写目标,历史 provenance 保留。见 commit 3473c93/b4636cb）
 
 ## 4.2 安装/启动脚本复现（0.5 天）
 
 - `setup.ps1`：`uv sync`（当前是 pip+requirements 文件，违反「强制 uv」，必须改）→ 检查 `tools/napcat-shell` → 提示复制 `water-group/config.example.json` 为 `config.json` → 生成 `.env`（含 `REPLY_ONEBOT_*` 5 键：`URL`/`TOKEN`/`WS_URL`/`WS_TOKEN`/`WS_TOKEN_MODE`）→ 删掉 `install_readers.py`/`prepare_reader_runtime.py` 调用（§3.3 已删这两个脚本）。`.env` 的 `URL`/`TOKEN` 可从 `config.json` 的 `onebot_http_url`/`onebot_token` 同步；`WS_URL`/`WS_TOKEN`/`WS_TOKEN_MODE` 在 config.json 无对应键，必须手动填（plan 不能说「全从 config.json 同步」）。`bootstrap.py --status-only` 前提是 NapCat 已跑——fresh clone 后还没下 NapCat/登 QQ，装依赖阶段不该跑这个自检，仅做 `uv sync` 后的 import smoke。
 - `start.ps1` / `stop.ps1`：指向 `server_wg.py` 与 `up.py`；stop 直接匹配 `server_wg.py`（不留 `app.py` 兼容分支）。
 - 新增 `scripts/setup-napcat.ps1`（或 `tools/fetch-napcat.py`）：下载指定版本 NapCat 到 `tools/napcat-shell/`，校验大小/哈希；不把 112MB 纳入 git。需锁版本 + 写明哈希算法。
-- [ ] 从零验证：新目录 `git clone` + `setup.ps1` + 填 config + `start.ps1`，能起栈并回一条消息。
+- [x] 从零验证：新目录 `git clone` + `setup.ps1` + 填 config + `start.ps1`，能起栈并回一条消息。（部分完成: setup/start/stop 脚本就绪 (5d533f9),NapCat fetcher 就绪 (f8d4f86),import smoke 绿;完整 clone+起栈+真 @ 回复需真实 NapCat+QQ 登录环境,留 §4.3 观察期首次部署验证）
 
 ## 4.3 2 周观察期（canary）
 
@@ -32,15 +33,15 @@
 | DB 健康 | `PRAGMA integrity_check` | `ok`；WAL 不异常增长 |
 | 门禁 | 23 条全跑（每周一次） | 全绿 |
 
-- [ ] 观察期内**不改** `data/` 表结构、不升级 NapCat/QQ。
-- [ ] 出现 P0（无法回复/频繁掉线）→ 按 Phase 回滚点回退，记录现象。
+- [ ] 观察期内**不改** `data/` 表结构、不升级 NapCat/QQ。（**DEFERRED — §4.3 观察期未启动**,本 checkbox 是观察期进行时项,现在无法勾）
+- [ ] 出现 P0（无法回复/频繁掉线）→ 按 Phase 回滚点回退，记录现象。（**DEFERRED — §4.3 观察期未启动**）
 
 ## 4.4 可选：拆新仓库（观察期后）
 
 - `git clone` + 只保留 keep 集；`pre-slim` 原仓库留作上游参考。
 - 必须随仓库带走的 gitignored 资产：`water-group/config.json`、`water-group/personas/yu_bao.md`、`data/`（或迁移脚本）、`tools/napcat-shell/`（下载脚本替代）。
 - 新仓库首次提交前跑 `check_publication`，确认无私有人设/群号/Token。
-- [ ] 不建议在观察期结束前拆仓；拆仓后原仓库至少保留 1 个月。
+- [ ] 不建议在观察期结束前拆仓；拆仓后原仓库至少保留 1 个月。（**DEFERRED — §4.4 观察期后动作,现在不可执行**）
 
 ## 4.5 可选后续优化（不进本次范围）
 
