@@ -68,8 +68,10 @@ class MCPAccess:
     def configure(self, enabled, port):
         if type(enabled) is not bool or type(port) is not int or not 1024 <= port <= 65535:
             raise ValueError('启用状态或端口无效；端口范围 1024–65535。')
-        from .terminal_instances import validate_mcp_port
-        validate_mcp_port(self.store.path.parent.parent, port)
+        # Water-group slim: terminal_instances.validate_mcp_port (multi-instance
+        # port registry) is gone. The real "port already held" guard is the
+        # bind in MCPService.start(); a rival on a taken port reports
+        # status()['error'] instead of running. No pre-check here.
         with self.connect() as db:
             db.execute('UPDATE settings SET enabled=?,port=? WHERE id=1', (enabled, port))
 

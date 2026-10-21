@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -70,3 +71,18 @@ def local_path(value):
     if not path.is_relative_to(ROOT):
         raise ValueError('请先把导出文件放入程序目录下的 imports 文件夹；仅访问当前工作目录内的导入文件。')
     return path
+
+
+def wg_config(root=None):
+    """Read-only cached water-group config.json. Single source for onebot/ws/sender
+    endpoints and self_account. Falls back to {} so callers fall through to .env.
+
+    ``root`` defaults to ROOT but callers pass a (possibly patched) root so test
+    isolation holds: a test that patches chatlocal.onebot.ROOT to a temp dir must
+    not pick up the real repo's water-group/config.json.
+    """
+    path = (root or ROOT) / 'water-group' / 'config.json'
+    try:
+        return json.loads(path.read_text('utf-8'))
+    except (OSError, ValueError):
+        return {}

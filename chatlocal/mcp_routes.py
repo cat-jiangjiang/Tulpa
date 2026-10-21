@@ -44,10 +44,13 @@ def install_mcp_routes(app, store=None):
         local(request)
         with store.connect() as db:
             platforms={r[0]:r[1] for r in db.execute('SELECT platform,count(*) FROM messages GROUP BY platform')}
-        from .desktop_routes import read_product_settings
-        settings=read_product_settings()
+        # Water-group slim: read product settings from water-group/config.json
+        # instead of desktop_routes.read_product_settings (deleted in Phase 3).
+        from .config import wg_config
+        cfg = wg_config()
+        onebot_configured = bool(cfg.get('onebot_http_url') and cfg.get('onebot_token'))
         return dict(**service.status(), **access.list(), storage_label=store.path.parent.parent.name,
-                    data_platforms=platforms, onebot_configured=bool(settings['sender_url']))
+                    data_platforms=platforms, onebot_configured=onebot_configured)
 
     @app.put('/api/mcp')
     def configure(request: Request, body: dict):

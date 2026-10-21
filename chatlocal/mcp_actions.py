@@ -6,7 +6,6 @@ import threading
 import time
 import uuid
 
-from .group_admin import GroupAdmin
 from .message_sender import QQSender, SendError, SendUncertain
 from .onebot import Client, OneBotError, OneBotUncertain
 from .retrieval import scope_sql
@@ -75,15 +74,10 @@ class MCPActions:
             if address.get('mention_user_ids'):labels.append('@ '+', '.join(address['mention_user_ids']))
             detail = ('\n'+'；'.join(labels)) if labels else ''
             return address, f'QQ {address["account"]} → {"群" if address["kind"]=="group" else "好友"}「{address["name"]}」（{address["peer"]}）{detail}\n发送：\n{text}', row
-        allowed = {'action','user_id','duration_seconds','group_name','request_id','approve','reason'}
-        if set(params)-allowed or params.get('action') not in ('mute','unmute','kick','rename','request'):
-            raise ValueError('群管理参数无效。')
-        fields = {'mute':{'user_id','duration_seconds'}, 'unmute':{'user_id'}, 'kick':{'user_id'},
-                  'rename':{'group_name'}, 'request':{'request_id','approve','reason'}}[params['action']]
-        if set(params)-fields-{'action'}:
-            raise ValueError('参数不属于所选管理操作。')
-        target, api, payload, summary = GroupAdmin(self.store).validate(self.client_factory(), cid, params['action'], params)
-        return dict(target=target, api=api, payload=payload), summary, row
+        # Water-group slim: group-admin operations (mute/kick/rename/request) are
+        # removed — qq_group_admin tool is gated off (check_mcp asserts it absent)
+        # and no kept tool path reaches a non-send kind. scope_sql stays for send.
+        raise ValueError('不支持的操作类型。')
 
     def public(self, row):
         result = {k: row[k] for k in ('id','grant_id','kind','conversation_id','summary','state','created','updated')}

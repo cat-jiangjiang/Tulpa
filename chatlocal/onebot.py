@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import httpx
@@ -33,11 +34,26 @@ READS = READS | frozenset(READ_APIS)
 WRITES = WRITES | frozenset(WRITE_APIS)
 
 
+# Water-group slim: SnowLuma managed-process layer removed. These no-ops keep the
+# call sites in Client.call / EventReceiver.recv (guard) working without the product
+# shell; there is no cross-process QQ authorization to recheck in the slim build.
+def connection(root=None, kind='http'):
+    return None
+
+
+@contextmanager
+def guard(config, *, fresh=True):
+    yield
+
+
 def configuration(root=None):
-    from .snowluma_managed import connection
-    managed = connection(root or ROOT)
-    if managed is not None:
-        return managed
+    # Water-group slim: read OneBot HTTP endpoint from water-group/config.json,
+    # fall back to .env (REPLY_ONEBOT_*). SnowLuma managed path is gone.
+    from .config import wg_config
+    cfg = wg_config(root or ROOT)
+    if cfg.get('onebot_http_url') and cfg.get('onebot_token'):
+        return dict(url=str(cfg['onebot_http_url']).strip(),
+                    token=str(cfg['onebot_token']).strip())
     values = dotenv_values((root or ROOT) / '.env')
     def value(key):
         return str(os.environ.get(key, values.get(key) or '')).strip()
@@ -62,11 +78,7 @@ class Client:
 
     @timing.stage("onebot.query")
     def call(self, action, payload, *, approved=False):
-        from .snowluma_managed import guard
-        try:
-            guard(self.managed_config)
-        except ValueError:
-            raise OneBotError('QQ 托管授权、进程或账号绑定已失效，未执行操作。', 'managed_not_ready') from None
+        # SnowLuma managed guard removed in slim build; see module-level guard().
         if action not in (READS | (WRITES if approved else frozenset())):
             raise OneBotError('该接口不在允许范围内，管理操作需要审批。')
         timing.note(onebot_action=action)

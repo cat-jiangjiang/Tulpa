@@ -17,10 +17,17 @@ from . import onebot
 
 def configuration(root=None):
     root = root or onebot.ROOT
-    from .snowluma_managed import connection
-    managed = connection(root, 'ws')
-    if managed is not None:
-        return managed
+    # Water-group slim: read WS endpoint from water-group/config.json, fall back
+    # to .env. SnowLuma managed path is gone.
+    from .config import wg_config
+    cfg = wg_config(root)
+    if cfg.get('onebot_ws_url') or cfg.get('onebot_http_url'):
+        ws_url = str(cfg.get('onebot_ws_url') or '').strip()
+        token = str(cfg.get('onebot_ws_token') or '').strip()
+        if not token and cfg.get('onebot_ws_token_mode', 'shared') != 'independent':
+            token = str(cfg.get('onebot_token') or '').strip()
+        if ws_url:
+            return dict(url=ws_url, token=token)
     values = dotenv_values(root / '.env')
     def value(key):
         return str(os.environ.get(key, values.get(key) or '')).strip()
@@ -158,8 +165,7 @@ class EventReceiver:
                             # dispatch cannot feed a late event into chat/learning.
                             if self.config_factory() != cfg:
                                 raise ValueError('configuration_changed')
-                            from .snowluma_managed import guard
-                            guard(cfg, fresh=False)
+                            # SnowLuma managed guard removed in slim build (no-op).
                             self.on_event(event)
             except InvalidStatus as exc:
                 auth = exc.response.status_code in (401, 403)
