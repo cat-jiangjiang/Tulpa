@@ -2,7 +2,7 @@
 
 欢迎使用 Tulpa 仓库。本指南是专为进入本项目的 AI Agent（以及协同开发者）设计的操作手册，旨在说明项目架构、开发规范、核心子系统设计以及强制性安全门禁。
 
-面向使用者的教程在 `doc/`（`CONTRIBUTING.md`、`VALIDATION.md`、`SECURITY.md`、`AGENT_SETUP.md` 等）；水群子系统的 Agent 侧规则另有 `.agents/rules/water_group.md` 与 `.agent/skills/water-group/`。本文件面向**仓库内的开发与维护工作**。
+面向使用者的教程在 `doc/`（水群协议与各 MCP 工具的验证记录、安全说明、两轮 DRY/SRP 审计报告）；水群子系统的 Agent 侧规则另有 `.agents/rules/water_group.md` 与 `.agents/skills/water-group/SKILL.md`。本文件面向**仓库内的开发与维护工作**。
 
 ## 0. 接管水群（用户说「在 xxx 群挂机水群」时先看这里）
 
@@ -34,33 +34,25 @@
 
 ## 1. 项目定位与核心架构
 
-Tulpa 是一个**本地优先（Local-First）**的多端聊天数据汇聚、Agent 交互与 OneBot 11 桥接中间件，基于 Model Context Protocol (MCP) 标准向桌面端及外部 Agent 提供服务。产品形态包括：Windows 完整版（.NET 桌面壳 + 内置 Web 服务）、MCP 轻量版（仅 MCP Server）、Linux 终端源码版（CLI/TUI + 后台服务，`./tulpa` 启动）。
+这是 Tulpa 的 water-group-only slim 分支：把上游的桌面产品壳（.NET 桌面壳、Web 前端、读微信、Linux 终端、安装包）整个砍掉，只留水群这一条路。后端入口是单一进程 `server_wg.py`（FastAPI），监听 OneBot 11 实时事件，通过 Model Context Protocol (MCP) 向外部 Agent 暴露工具。**Windows only**。
 
 ```
         ┌──────────────────────────────────────────────────┐
         │            外部 Agent / 桌面客户端                 │
         │   (Gemini, Claude, Codex, DeepSeek, WorkBuddy…)  │
-        └───────────────┬──────────────────┬───────────────┘
-                        │ MCP (stdio/SSE)  │ HTTP/WebSocket
-              ┌─────────▼──────────┐  ┌─────▼──────────────┐
-              │  chatlocal/ 引擎    │  │  web/ 前端（无构建） │
-              │ - store.py SQLite  │  │ - platform-label.js │
-              │ - mcp_* MCP 工具层  │  └────────────────────┘
-              │ - agent* 会话与人格 │
-              │ - tui/ Textual 界面 │
-              │ - prompts/mcp_chat/│
-              └───┬───────────┬────┘
-                  │           │
-      ┌───────────▼──┐   ┌────▼───────────────────┐
-      │ OneBot 11 网关│   │ tools/ 只读读取器        │
-      │ (HTTP / WS)  │   │ qq-reader/wechat-reader  │
-      └───────┬──────┘   │ napcat-shell/snowluma    │
-              │          │ （vendored，gitignored） │
-      ┌───────▼──────────▼───────────────────────────┐
+        └───────────────┬──────────────────────────────────┘
+                        │ MCP (stdio/SSE)  HTTP/WebSocket
+              ┌─────────▼──────────┐  ┌──────────────────────┐
+              │  chatlocal/ 引擎    │  │  OneBot 11 网关      │
+              │ - store.py SQLite  │  │ (NapCat, HTTP / WS)  │
+              │ - mcp_* MCP 工具层  │  │  43000 / 43001       │
+              │ - prompts/mcp_chat/│  └──────────┬───────────┘
+              └───────────┬───────┘             │
+      ┌───────────────────┴─────────────────────┘
       │          water-group (水群子系统)              │
       │  memory_engine.py · memory_commands.py        │
-      │  memory_format.py · bootstrap.py              │
-      │  sync_groups.py · sync_personas.py · fwd.py   │
+      │  memory_format.py · bootstrap.py               │
+      │  sync_groups.py · personas/                   │
       └───────────────────────────────────────────────┘
 ```
 
@@ -68,16 +60,13 @@ Tulpa 是一个**本地优先（Local-First）**的多端聊天数据汇聚、Ag
 
 | 目录 | 职责 |
 |------|------|
-| `chatlocal/` | 应用核心（约 136 个模块）：`store.py`（SQLite/WAL 连接策略）、`mcp_*` MCP 工具与路由层（`mcp_server.py`、`mcp_tools.py`、`mcp_chat*.py`、`mcp_qq*.py`、`mcp_reactions.py`、`mcp_sticker_library.py` 等）、`agent*.py` 会话与人格、`tui/` Textual 终端界面、`prompts/mcp_chat/` 人格卡模板、`onebot*.py` 网关、`linux_*.py` Linux 支持 |
-| `water-group/` | QQ 群水群专属自闭环模块：`bootstrap.py`（一键后台启动、端口屏障与自检）、`memory_engine.py`（群友小本本动态记忆，两层存储）、`memory_commands.py`（指令语法解析）、`memory_format.py`（L1 画像卡渲染）、`sync_groups.py` / `sync_personas.py`（群列表/名片/人设同步）、`fwd.py`（转发）、`personas/` 角色人格卡 |
+| `chatlocal/` | 应用核心：`store.py`（SQLite/WAL 连接策略）、`mcp_*` MCP 工具与路由层（`mcp_server.py`、`mcp_tools.py`、`mcp_chat*.py`、`mcp_qq*.py`、`mcp_reactions.py`、`mcp_sticker_library.py` 等）、`agent*.py` 会话与人格、`prompts/mcp_chat/` 人格卡模板、`onebot*.py` 网关、`voice.py` 云端 ASR |
+| `server_wg.py` | 后端唯一入口：FastAPI，HTTP `47860` / MCP `48777`，`install_mcp_routes` 挂载 MCP；不 import `app.py`/Gradio（已删） |
+| `water-group/` | QQ 群水群专属自闭环模块：`bootstrap.py`（一键后台启动、端口屏障与自检）、`memory_engine.py`（群友小本本动态记忆，两层存储）、`memory_commands.py`（指令语法解析）、`memory_format.py`（L1 画像卡渲染）、`sync_groups.py`（群列表/名片同步）、`personas/` 角色人格卡 |
 | `water_group/` | 根目录标准 Python 模块兼容桥接 shim（连字符目录不可直接 import）。**它是唯一知道连字符目录存在的 water-group 文件**：通过扩展自身 `__path__` 使每个文件以 `water_group.<name>` 恰好可达一次；子模块经 PEP 562 懒加载解析。**严禁把连字符目录加入 `sys.path`**——同一文件以两个名字加载会拆分状态（记忆引擎单例曾因此损坏） |
-| `web/` | 前端（26 个文件，**无独立构建步骤**）：`app.js`、`chat.js`、`mcp.js`、`platform-label.js` 等；交互修改必须用真实浏览器验证（DOM 夹具只验证脚本行为） |
-| `desktop/` | 桌面壳：`ChatWeave.cs`（.NET Framework 4.8 宿主）与 `build.py`、`serve.py`、`diagnose.py`、`fetch_runtime.py`、`build_live_lock.py` |
-| `harness/` | Node 侧工具（`chat-tools.mjs`），零依赖直接用 `node` 运行 |
-| `tools/` | **第三方 vendored 只读读取器**（qq-reader、wechat-reader、napcat-shell、snowluma、reader-manifest.json），受 `.gitignore` 保护。**禁止直接修改副本**；读取兼容修改一律通过 `scripts/reader_patches.py` 或本项目适配层实现 |
-| `scripts/` | 170+ 检查与辅助脚本，以及共享基建：`fixture_server.py`（假服务器样板基类）、`check_fixture_support.py`（隔离环境/临时目录/网络护栏）、`incremental_common.py`（增量游标指纹）、`reader_patches.py`（读取器补丁） |
-| `doc/` | 50+ 篇文档：教程（`CONTRIBUTING.md`、`DESKTOP.md`、`MCP.md`、`IMPORTS.md`、`UPGRADE.md`）、验证记录（`VALIDATION.md`）、安全（`SECURITY.md`）与两轮 DRY/SRP 审计报告（`DRY_SRP_AUDIT_2026-10-19.md`、`DRY_SRP_AUDIT_2026-10-20.md`） |
-| `requirements/` | 分类依赖（readers / MCP 轻量版 / 图片 / 文件解析 / 语音），根 `requirements.txt` 为基础依赖；`.venv/` 不入库 |
+| `scripts/` | 检查与辅助脚本，以及共享基建：`fixture_server.py`（假服务器样板基类）、`check_fixture_support.py`（隔离环境/临时目录/网络护栏）、`incremental_common.py`（增量游标指纹）、`setup-napcat.ps1`（NapCat Shell 拉取器，pinned + sha256 校验） |
+| `doc/` | 水群与 MCP 协议文档：`MCP_CHAT*`、`MCP_REACTIONS*`、`GROUP_MANAGEMENT`、`REPLY_TIMING`、`WATER_GROUP_ONLY_PLAN`、`SECURITY`、`THIRD_PARTY`，及两轮 DRY/SRP 审计报告 |
+| `tools/` | NapCat Shell（OneBot 11 适配器，`setup-napcat.ps1` 拉取，受 `.gitignore` 保护）。上游的 qq-reader / wechat-reader / snowluma 已随桌面壳删除 |
 
 **运行时/本地目录（均受 `.gitignore` 保护，严禁提交）**：`data/`（SQLite 库）、`imports/`、`reports/`、`build/`、`.env`、`.cache/`、`.tmp/`、`water-group/config.json`、`water-group/status.json`、`water-group/logs/`、`*yu_bao*`。
 
@@ -94,7 +83,7 @@ Tulpa 是一个**本地优先（Local-First）**的多端聊天数据汇聚、Ag
 
 ### 2.2 进程与系统安全规范
 - **严禁使用宽泛通配符杀进程**：坚决禁止执行 `taskkill /F /IM node.exe` 或 `python.exe`（会连带杀死当前 Agent 宿主）。
-- **保护宿主机 QQ 进程**：宿主机正在运行的官方桌面 QQ（PID 1720 / 账号 1716200584）是本地读取器与通信源，**绝对不可终止**。
+- **保护宿主机 QQ 进程**：宿主机正在运行的官方桌面 QQ 是通信源，**绝对不可终止**。杀注入实例时**认 `-q <self_account>`**，别认启动器开关，更不要按进程名通配。
 - **端口清理三步走**：
   1. `netstat -ano | findstr :<port>` 查找精确 PID。
   2. `tasklist /FI "PID eq <pid>"` 验证进程属性。
@@ -113,7 +102,7 @@ Tulpa 是一个**本地优先（Local-First）**的多端聊天数据汇聚、Ag
   ```bash
   uv run python scripts/check_publication.py
   ```
-  扫描范围包括待推送的提交历史，不能只检查当前工作区文件。
+  扫描范围是 `git ls-files` 追踪的工作区 Markdown 文件的本地链接完整性与必需文档清单；不扫提交历史。
 
 ### 2.5 单一归属目录（新增代码的落脚点）
 
@@ -123,12 +112,10 @@ Tulpa 是一个**本地优先（Local-First）**的多端聊天数据汇聚、Ag
 |--------|----------|
 | MCP wire-contract schema 片段（`session_id`/`idempotency_key`/`event_id`） | `chatlocal/mcp_schemas.py`（工厂函数返回 fresh dict，避免就地改写泄漏） |
 | 聊天等待超时默认值 | `chatlocal/mcp_chat_limits.py: WAIT_TIMEOUT_SECONDS` |
-| 文件 SHA-256 | `chatlocal/file_hash.py`（`hashlib.file_digest` 流式，禁止 `read_bytes()` 全量读入） |
-| Web 平台标签 | `web/platform-label.js`（两个 HTML 的首个 script） |
+| 文件 SHA-256 / MD5 | `chatlocal/artifacts.py`（`hashlib.file_digest` 流式，禁止 `read_bytes()` 全量读入） |
 | 假服务器样板 | `scripts/fixture_server.py`（`FixtureHandler` + `fixture_server()` contextmanager） |
 | 测试隔离环境 / 临时目录 / 网络护栏 | `scripts/check_fixture_support.py`（`isolated_env` / `temp_dir` / `network_guard`） |
 | 增量导入游标指纹 | `scripts/incremental_common.py` |
-| 读取器兼容补丁 | `scripts/reader_patches.py` |
 
 注：`scripts/` 中大量存量脚本使用仓库根 `sys.path.insert` 模式（见二轮审计第 4 节"记录不修"），**新脚本必须遵循 canonical 模式**，不得再扩散手写样板。
 
@@ -162,7 +149,7 @@ Agent 必须且仅能通过标准化 MCP 工具维护群友记忆，**严禁自�
 ### 3.4 群成员号码与名片对齐矩阵
 群友频繁修改花哨的群名片（例如将名片改为梗名）会导致系统失去上下文。本系统通过三层对齐彻底解决该问题：
 1. **静态配置映射**: 在 `config.json` 的 `member_mappings` 绑定 QQ 号与 `seed_key`（如 `seed:shiyue`、`seed:criss`），启动时自动合并孤儿种子。
-2. **OneBot 名片同步**: 每次启动自动通过 `get_group_member_list` 获取所有成员的最新名片并推入别名表（`sync_groups.py` / `sync_personas.py`）。
+2. **OneBot 名片同步**: 每次启动自动通过 `get_group_member_list` 获取所有成员的最新名片并推入别名表（`sync_groups.py`）。
 3. **群内动态认亲**: 群友发送 `@机器人 标注 2057796208 是 孩董` 即可秒级更新映射。
 
 ---
@@ -208,25 +195,19 @@ uv run python scripts/check_mcp_chat_output.py
 # 7. 对话轮次生命周期与原生引用测试 (19项高并发与防竞争检查)
 uv run python scripts/check_mcp_chat_turns.py
 
-# 8. 发布代码敏感信息与泄露扫描 (全量源文件+提交历史审查)
+# 8. 发布代码敏感信息与泄露扫描 (工作区 Markdown 链接完整性 + 必需文档清单)
 uv run python scripts/check_publication.py
 ```
 
 ### 5.2 仓库级回归门禁
 ```bash
-# 核心行为/范围/开关/来源回归（合成夹具，不碰真实数据库）
-uv run python scripts/check_tulpa.py
-
-# 关键路径冒烟（显式合成数据）
-uv run python scripts/smoke.py
-
 # MCP 协议层契约
 uv run python scripts/check_mcp.py
 ```
 
-按改动范围选用对应门禁（前端：`check_chat_browser.py` / `check_chat_browser_ui.cjs`；桌面：`check_desktop.py`；Linux：`check_linux_suite.py`；终端 TUI：`check_terminal_tui.py` 等，完整清单见 `scripts/` 与 `doc/VALIDATION.md`）。
+完整 23 门禁清单与顺序见 `doc/WATER_GROUP_ONLY_PLAN.md` §8。`scripts/` 里还残留上游桌面壳的旧门禁脚本（`check_tulpa.py` / `smoke.py` / `check_desktop.py` / `check_linux_suite.py` / `check_terminal_tui.py` / `check_chat_browser*.py` 等），它们 import 已删除的 `chatlocal.tulpa` / `render` / `chat_view` / `desktop_routes`，跑起来直接 ModuleNotFoundError，不列入回归集，不在本分支维护。
 
-**红门禁归因纪律**：失败时先用 git worktree pristine HEAD 对照——若同族失败则为既有环境问题（沙箱 WAL 竞态、缺 Linux 安装器等，见审计报告第 3 节），记录在案，不要盲目"修复"。
+**红门禁归因纪律**：失败时先用 git worktree pristine HEAD 对照——若同族失败则为既有环境问题（沙箱 WAL 竞态等，见审计报告第 3 节），记录在案，不要盲目"修复"。
 
 ---
 
@@ -245,32 +226,31 @@ uv run python scripts/check_mcp.py
 `water-group/bootstrap.py` 降级为**只读自检**。在代理沙箱里跑它会被直接拒绝（exit 2），因为从那里起的栈会把 `tsbx.dll` 一路继承到 QQ：
 
 ```bash
-# 仅检查网络、OneBot 连接与成员标注状态（不保持运行、不拉起任何进程）
+# 仅检查端口、OneBot 与后端健康（不保持运行、不拉起任何进程）
 uv run python water-group/bootstrap.py --status-only
 ```
 
-### 6.2 启动主 MCP 服务
+### 6.2 启动主后端（前台调试用）
+
+常驻栈走 §6.1 的 `start-bot.pyw`（它内部拉起 `supervisor → server_wg.py + collector + db_keeper + watchdog`）。只在需要前台看日志时单独跑后端：
+
 ```bash
-uv run python app.py
+uv run python server_wg.py
 ```
 
-### 6.3 Windows 完整版 / Linux 终端版
+`server_wg.py` 是 slim 的后端唯一入口：FastAPI，HTTP `47860` / MCP `48777`。端口被占会 exit 2。
+
+### 6.3 停栈
+
 ```powershell
-# Windows: 首次自动安装依赖与读取模块，然后启动（浏览器入口 http://127.0.0.1:7860/?desktop=1）
-.\setup.ps1
-.\start.ps1
-.\stop.ps1
-
-# Linux: 自动装依赖、起后台并打开 TUI（q 退出界面，后台继续；./tulpa stop 停止）
-./tulpa
+.\stop.ps1     # 只退 server_wg.py（前台调试栈）
 ```
+
+常驻栈用 `up.py --stop`（带 `/T` 退掉守护/看护/采集/后端整棵树），见 `.agents/rules/water_group.md` §0「重启整栈」。
 
 ### 6.4 常用辅助
 ```powershell
-# 手动刷新数据
-scripts\refresh-data.ps1
-
-# 本地 OneBot 回复发送器启停
-scripts\start-reply-sender.ps1
-scripts\stop-reply-sender.ps1
+# 拉 NapCat Shell（首次或换版本；pinned + sha256 校验）
+.\scripts\setup-napcat.ps1
+.\scripts\setup-napcat.ps1 -Update   # 拉最新版并打印新 pin，供人工复核后写回脚本
 ```

@@ -25,15 +25,15 @@ watchdog 于是无限重注入——桌面上那堆黑框就是这么攒出来�
 <上面的命令>   # run_in_background = true
 ```
 
-它会按依赖顺序拉起 NapCat → `app.py` → 采集/保活守护，然后进入守护循环**永不退出**。
+它会按依赖顺序拉起 NapCat → `server_wg.py` → 采集/保活守护，然后进入守护循环**永不退出**。
 这个进程就是整个水群的命脉：
 
-> ⚠️ 关闭它只能用 `up.py --stop`（`stop.ps1` 只管 `app.py`，停不干净；`--stop` 自己也可能留残留，见下）。
+> ⚠️ 关闭它只能用 `up.py --stop`（`stop.ps1` 只管前台 `server_wg.py`，停不干净；`--stop` 自己也可能留残留，见下）。
 > 不要 `kill`、不要「清理后台任务」、不要重启它。复查状态跑 `up.py --status`（只读）。
 
 ### 重启整栈：`--stop` 不等于全停
 
-`up.py --stop` 只退 supervisor / 看护 / 注入实例，**`app.py` 与 `collector.py` 常常原地活着，继续占着 47860 / 48777**。而 `start-bot.pyw` 是按端口判幂等的——端口还在就认定「已在运行」直接退出。结果：QQ 被杀没拉回来，`up.py --status` 却仍显示「后端 在线」，群里彻底哑掉还不能自愈。
+`up.py --stop` 只退 supervisor / 看护 / 注入实例，**`server_wg.py` 与 `collector.py` 常常原地活着，继续占着 47860 / 48777**。而 `start-bot.pyw` 是按端口判幂等的——端口还在就认定「已在运行」直接退出。结果：QQ 被杀没拉回来，`up.py --status` 却仍显示「后端 在线」，群里彻底哑掉还不能自愈。
 
 重启前先确认端口真的空，再起启动器：
 
@@ -60,12 +60,12 @@ netstat -ano | grep LISTENING | grep -E ":47860|:48777"   # 还有输出就是�
 | 进程 | 职责 |
 | --- | --- |
 | `db_keeper.py` | 常驻 SQLite 连接，钉住 WAL 边车文件；缺了会 `资料读取失败` |
-| `app.py` | 后端：Web 47860 / MCP 48777，退出会被守护重拉 |
+| `server_wg.py` | 后端：HTTP 47860 / MCP 48777，退出会被守护重拉 |
 | `collector.py` | 常驻 `wait_chat_messages`，消息先落盘再给你 |
 | `watchdog.py` | HTTP 探活保活 QQ，连续 3 次、跨 30 秒才判死 |
 | `supervisor.py` | 重启上面全部；采集器心跳超 300s 也视为卡死 |
 
-冷启动耗时参考：NapCat 注入约 **65 秒**，`app.py` 起端口约 **20 秒**，
+冷启动耗时参考：NapCat 注入约 **65 秒**，`server_wg.py` 起端口约 **20 秒**，
 采集器建立会话约 **20 秒**。这段时间看到「离线 / 未建立」是正常的，别急着重跑。
 
 **绝不要自己调 `wait_chat_messages`**。会和 collector 抢同一个会话，返回
@@ -370,7 +370,7 @@ tail -20 water-group/logs/napcat-watchdog.log # QQ 是否被反复重注入
 | QQ.exe 越攒越多 | `kill_stale_instances` 匹配失效。**认实例只认 `-q <self_account>`**，别认启动器注入的开关（`--enable-logging` 已被改成 `--disable-gpu`，跟着它走会漏杀） |
 | 注入实例每 20~40 秒崩一次，`0xC06D007F` | **栈是从代理里起的**。沙箱的 `tsbx.dll` 沿进程链继承到 QQ，delay-load 找不到导出就自杀。先看 `napcat-watchdog.log` 有没有 `WARN ... tsbx.dll`；有就是脏栈，`up.py --stop` 之后改用 `start-bot.pyw` 从 explorer 起 |
 | 判断某个 QQ 干不干净 | `Get-Process -Id <pid> -Module` 里**不该**出现 `tsbx.dll`。用户桌面启动的 QQ 本来就没有，所以这个判据只对注入实例有意义 |
-| 重启后 NapCat 离线、`--status` 却仍报「后端 在线」、启动器跑完毫无反应 | `--stop` 没停干净：残留 `app.py`/`collector.py` 占着 47860/48777，启动器按端口判幂等直接退出。按 §0「重启整栈」先清端口 |
+| 重启后 NapCat 离线、`--status` 却仍报「后端 在线」、启动器跑完毫无反应 | `--stop` 没停干净：残留 `server_wg.py`/`collector.py` 占着 47860/48777，启动器按端口判幂等直接退出。按 §0「重启整栈」先清端口 |
 | @ 了但群里没变蓝 | 三种：名字没解析（正文里留成了 `@某某` 文字）、那人不在本群（`--who` 会说）、或者消息走了 `send_chat_reply`（它只吃纯文本）。`get_msg` 回读一眼就分清 |
 
 **注入实例的身份**：`--disable-gpu    -q 3885934113`。用户桌面启动的 QQ 命令行不带任何参数，所以按 `-q <账号>` 匹配永远不会误伤。杀的时候带 `/T`，只杀主进程会把 renderer 和 network utility 留在原地继续占 profile。

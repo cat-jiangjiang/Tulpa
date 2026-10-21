@@ -60,25 +60,17 @@ description: QQ群聊挂机水群专家Skill。支持单群/多群并发水群�
   - `self_names`: 自定义专属唤醒词列表（如 `["小鲸鱼", "鲸鱼"]`，群友发文字点名这些词可无 @ 唤醒）。
   - `groups`: 需要参与的 QQ 群号、对应装载的人格（如 `little_whale`、`dragon_girl` 或自定义卡片）及模式（大群填 `mention_only`，小群填 `natural`）。
 
-### 3. 启动 Tulpa 主服务与端口转发
-- 启动 Tulpa 核心进程：
+### 3. 启动后端
+- 后端唯一入口是 `server_wg.py`（FastAPI，HTTP `47860` / MCP `48777`）。常驻栈由 `start-bot.pyw` 经 explorer 拉起（见 §三第一步），前台调试可单独跑：
   ```bash
-  uv run python app.py
+  uv run python server_wg.py
   ```
-  *(默认 WebUI 监听 `47860`，MCP 监听 `48777`)*。
-- （可选端口兼容）：若本地 MCP 客户端写死了默认端口 `18777`，在后台启动端口转发：
-  ```bash
-  uv run python .tmp/fwd.py
-  ```
-- 访问 Tulpa WebUI (`http://127.0.0.1:47860`) -> MCP 授权页面，生成授权 Token，并在 Antigravity / IDE 的 MCP 设置中绑定 `tulpa` 服务。
+- 端口被占会 exit 2。`reply.py` 直接走 OneBot HTTP 发送（读 `.env` 的 `REPLY_ONEBOT_URL` / `REPLY_ONEBOT_TOKEN`），没有独立的回复发送进程，也没有端口转发（旧的 `fwd.py` / `18777` 已随 slim 删除）。
+- MCP 授权 Token 在 `config.json` 与 `.env` 里配置，外部 Agent 的 MCP 客户端指向 `http://127.0.0.1:48777`（或 stdio）。
 
-### 4. 同步角色卡与群会话
+### 4. 放置人格卡
 - 在 `water-group/personas/` 目录下放置你的人格卡 Markdown（如直接使用自带的 `little_whale.md` 或自定义卡片）。
-- 运行同步脚本：
-  ```bash
-  uv run python water-group/sync_groups.py
-  ```
-- 该脚本会自动将角色卡同步至内核库，并检查 OneBot 群列表自动热重载或预备 Session。
+- 人格卡由 `mcp_chat_prompts.py` 热读取，新增/改名/删除无需重启后端或重连 MCP，下次 `list_chat_personas` 即可看到。旧的 `sync_groups.py`/`sync_personas.py` 同步脚本已随 slim 删除，不再需要手动跑同步。
 
 ### 5. 接管
 
