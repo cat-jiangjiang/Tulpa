@@ -81,7 +81,7 @@ local_path 属于运行 Tulpa 的电脑；外部 Agent 若在另一台机器则�
 '''
 
 
-class MCPTools:
+class WGTools:
     def __init__(self, access):
         self.access = access
         self.store = access.store

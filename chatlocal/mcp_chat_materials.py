@@ -50,7 +50,7 @@ def prepare(chat,grant,data,cancel,*,forward_session_id=None):
                 try:
                     call_id=chat.access.begin_call(grant['id'],'read_chat_image')
                     info,frames=chat.media.event_image(grant,entry['read_call']['arguments'],cancel,remember=False)
-                    # MCPTools.result places one TextContent before these ImageContent blocks.
+                    # WGTools.result places one TextContent before these ImageContent blocks.
                     entry.update(state='pixels_delivered',
                         dimensions=info['dimensions'],frame_indices=info['frame_indices'],thumbnail=info['thumbnail'],representation=info['representation'])
                     prepared.append((entry,segments,frames))

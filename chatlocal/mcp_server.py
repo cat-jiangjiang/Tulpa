@@ -16,7 +16,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from .mcp_access import AccessDenied
-from .mcp_tools import MCPTools, INSTRUCTIONS
+from .mcp_tools import WGTools, INSTRUCTIONS
 from .mcp_chat import CHAT_TOOLS
 from .mcp_chat_media import MEDIA_TOOLS, MEDIA_WRITES, MAX_BASE64_LENGTH
 from .mcp_qq import TOOLS as QQ_TOOLS, WRITES as QQ_WRITES
@@ -27,7 +27,7 @@ from .version import VERSION
 class MCPService:
     def __init__(self, access):
         self.access = access
-        self.tools = MCPTools(access)
+        self.tools = WGTools(access)
         self.tools.actions.recover()
         self.server = self.thread = self.listener = None
         self.error = ''

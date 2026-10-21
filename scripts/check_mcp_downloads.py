@@ -16,7 +16,7 @@ from chatlocal.store import Store
 from chatlocal.artifacts import Artifacts
 from chatlocal.artifact_onebot import OneBot, upsert
 from chatlocal.mcp_access import MCPAccess, RateLimited
-from chatlocal.mcp_tools import MCPTools
+from chatlocal.mcp_tools import WGTools
 from chatlocal.optional_components import install_component_routes
 
 
@@ -30,7 +30,7 @@ def main():
                 upsert(db,cid,'Fixture',dict(file_id=cid,file_name='fixture.docx',file_size=len(data),upload_time=1790784000))
         access=MCPAccess(store);access.configure(True,18779)
         access.accounts=lambda platforms:{'qq':'111'}
-        adapter=MCPTools(access)
+        adapter=WGTools(access)
         def grant(**extra):return access.create(dict(name='Fixture',platforms=['qq'],conversations=[['qq','111:group:222']],**extra))
         readonly=grant();local=grant(prepare=True);remote=grant(prepare=True,onebot=True)
         with patch('chatlocal.mcp_access.bound_account',return_value='111'),patch.object(adapter,'onebot',return_value=object()),patch.object(Artifacts,'local_candidate',return_value=None):
