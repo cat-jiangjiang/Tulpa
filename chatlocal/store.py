@@ -1,23 +1,25 @@
 import hashlib
 import json
+import re
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-
-import jieba
 
 from .config import DB, DATA, ROOT, local_path, resolve_path
 from .normalize import TZ, decode_export, display_time, normalize, stable_key
 from .media import hydrate,import_media,is_sticker,media_at,STICKER_PLACEHOLDER
 from .sqlite_util import connect as sqlite_connect, initialize as sqlite_initialize
 
-jieba.dt.tmp_dir = str(ROOT / '.cache')
-jieba.setLogLevel(30)
-
 
 def tokens(text):
-    return ' '.join(t.lower() for t in jieba.cut_for_search(text) if t.strip())
+    # Water-group slim: jieba was a top-level import that would make the whole
+    # store-import chain fail once jieba is removed in Phase 3. Use regex
+    # \w+ tokenization as a jieba-free stub; message_fts MATCH still works
+    # because every caller of search_messages also falls through to a
+    # substring (instr(lower(content))) scan that does not depend on the
+    # index's token boundaries. Behavior is identical for ASCII queries.
+    return ' '.join(t.lower() for t in re.findall(r'\w+', text or ''))
 
 
 class Store:
