@@ -9,6 +9,8 @@ import wave
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
+# tools/qq-reader is unused by locate_qq (pure stdlib), but keep it on the path
+# so locate_wechat's optional imports resolve if a future caller re-enables it.
 sys.path[:0]=[str(ROOT),str(ROOT/'tools/qq-reader'),str(ROOT/'tools/wechat-reader')]
 from chatlocal.config import DATA,local_path
 
@@ -27,37 +29,11 @@ def locate_qq(locator,source,maximum):
     return None,None
 
 def locate_wechat(locator,source,maximum):
-    from wechatauto.db import WeChatDB
-    from live_reader import Reader
-    meta=json.loads((DATA/'wechat-snapshot-info.json').read_text('utf-8'))
-    server=int(source['source_id']) if source['source_id'].isdigit() else int(locator.get('server_id',0))
-    if server<=0:raise ValueError('语音尚未取得服务器消息 ID，可稍后重试。')
-    # Read authenticated pages from the live DB/WAL. Cached snapshots can be stale,
-    # so failure is explicit rather than presenting an old cache as current.
-    reader=Reader('wechat');reader.views=[]
-    wx=WeChatDB(db_dir=str(Path(meta['source_db']).parent.parent),account=meta['account'],
-        workdir=str(DATA/'live/wechat'),keys_file=str(DATA/'wechat-reader/keys.json'))
-    if locator.get('account')!=wx.wxid or locator.get('chat')!=source['conversation_id']:
-        raise ValueError('语音账号或会话不匹配。')
-    try:
-        for path in sorted(Path(meta['source_db']).glob('message/media_*.db')):
-            rel=path.relative_to(Path(meta['source_db'])).as_posix()
-            key=wx._keys.get(rel) or wx._keys.get(rel.replace('/','\\'))
-            if not key:raise ValueError('微信语音分片缺少密钥，请更新本地读取密钥后重试。')
-            db=reader.open(path,key)
-            tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if not {'VoiceInfo','Name2Id'}<=tables:continue
-            row=db.execute('''SELECT length(v.voice_data),v.rowid FROM VoiceInfo v JOIN Name2Id n ON n.rowid=v.chat_name_id
-              WHERE n.user_name=? AND v.svr_id=? ORDER BY v.create_time DESC LIMIT 1''',(source['conversation_id'],server)).fetchone()
-            if row:
-                if row[0]>maximum:raise ValueError('语音文件超过大小限制。')
-                raw=db.execute('SELECT voice_data FROM VoiceInfo WHERE rowid=?',(row[1],)).fetchone()[0]
-                for view in reader.views:view.view.assert_fresh()
-                if raw:return bytes(raw),None
-        for view in reader.views:view.view.assert_fresh()
-        return None,None
-    finally:
-        for view in reader.views:view.close()
+    # Water-group slim: the water-group collector is QQ-only; locate_wechat depended
+    # on tools/wechat-reader + wechatauto + per-account media DB keys, none of which
+    # the slim build ships. Removed in Phase 2 §2.7. A wechat voice source will report
+    # missing instead of crashing the worker. Re-enable only if a wechat reader ships.
+    raise ValueError('微信语音读取不在水群精简版范围内；原消息保留。')
 
 def decode(raw,maximum_seconds):
     if raw.startswith(b'\x02#!SILK_V3') or raw.startswith(b'#!SILK_V3'):

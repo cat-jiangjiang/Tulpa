@@ -33,7 +33,7 @@ FILTERS = {
     'has_voice':dict(type='boolean',description='true只查原生语音，false排除语音；语音文字仅在已转写后才能按关键词搜到'),
 }
 SCHEMAS = [
-    tool('transcribe_voice','按需理解一条 QQ/微信原生语音。使用本地 ASR，不上传音频；已转写则复用结果。'
+    tool('transcribe_voice','按需理解一条 QQ/微信原生语音。音频上传到云端 ASR Worker 转写；已转写则复用结果。'
          '仅可处理当前用户范围内消息；返回机器转写和原始消息ID，可能有误听。关键上下文是语音时应主动调用。每轮最多3条。',
          {'message_id':NUMBER},['message_id']),
     tool('get_messages_since','按需读取某个本地消息ID之后入库的消息，含迟到的旧消息。仍受当前平台、会话、日期和快照限制。'

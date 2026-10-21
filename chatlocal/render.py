@@ -28,7 +28,7 @@ def message_html(message):
     quote='<blockquote class="reply-quote">'+esc((reply.get('sender','')+'：' if reply.get('sender') else '')+reply.get('content',''))+'</blockquote>' if reply else ''
     voice=message.get('voice')
     if voice:
-        media.append('<div class="voice-evidence"><small>[语音转写] 本地机器识别，可能有误听</small><p>'+esc(voice.get('transcript') or '尚未取得转写；打开上下文可试听或按需转写。')+'</p></div>')
+        media.append('<div class="voice-evidence"><small>[语音转写] 云端机器识别，可能有误听</small><p>'+esc(voice.get('transcript') or '尚未取得转写；打开上下文可试听或按需转写。')+'</p></div>')
     return (f'<div class="source-message" style="margin:10px 0"><b>M{message["id"]} {esc(label(message))}</b>'
             f'<div>{esc(message["sender"])} · {identity}</div>'
             f'{quote}<pre style="white-space:pre-wrap;overflow-wrap:anywhere;font:inherit">{esc(message["content"])}</pre>'+''.join(media)+
