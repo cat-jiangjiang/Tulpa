@@ -3,8 +3,6 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-import jieba
-
 from .normalize import TZ, stamp, display_time
 
 STOP = set('之前 关于 怎么 怎样 什么 哪些 有没有 最近 过去 一周 一下 事情 讨论 记录 聊天 帮我 查找 找到 请问 我 你 他 她 的 了 是 在 和 与 里 中 过 吗 呢 地 得 做 提到 曾经 一件 一个 时候 我们 他们 内容 微信 qq wechat'.split())
@@ -79,7 +77,11 @@ def make_plan(question, platforms=None, conversations=None, start='', end='', ke
         p.keywords = re.findall(r'[\w\u4e00-\u9fff]+', keywords.lower())[:12]
     elif p.mode == 'search':
         quoted = re.findall(r'[“"「](.*?)[”"」]', q)
-        p.keywords = quoted or [t.lower() for t in jieba.cut(re.sub(r'\d{4}-\d{2}-\d{2}', '', q))
+        # Whitespace splitting for ad-hoc search; the deleted Gradio watch/terminal
+        # UI was the only caller passing a free-form question here. The live MCP
+        # read tools (agent_tools._search_messages) split the caller's query
+        # explicitly, so they never reach this branch.
+        p.keywords = quoted or [t.lower() for t in re.split(r'\s+', re.sub(r'\d{4}-\d{2}-\d{2}', '', q).strip())
                                if len(t.strip()) >= 2 and t.lower() not in STOP
                                and re.search(r'[\w\u4e00-\u9fff]', t)]
         p.keywords = list(dict.fromkeys(p.keywords))[:12]

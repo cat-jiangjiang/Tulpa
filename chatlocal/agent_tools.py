@@ -439,7 +439,7 @@ class ChatTools(ArtifactTools,InvestigationTools,WorkspaceTools,QQTools):
     def _search_messages(self,args):
         query=args['query'].strip()
         if not query and not args.get('has_media') and not args.get('has_voice') and not args.get('sender_id'): raise ValueError('关键词不能为空')
-        # Explicit space-separated phrases; jieba provides an additional FTS path.
+        # Explicit space-separated phrases; FTS MATCH plus a substring scan.
         terms=list(dict.fromkeys(query.lower().split()))[:12]
         expression=' OR '.join('"'+tokens(k).replace('"','""')+'"' for k in terms if tokens(k).strip())
         if query and not expression: raise ValueError('无有效关键词')

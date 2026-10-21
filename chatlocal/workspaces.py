@@ -202,14 +202,14 @@ class Workspaces(WorkspaceIDE):
             (scope['end'] is None or event['source_timestamp'] is not None and event['source_timestamp']<scope['end']))
     def discover(self,wid,limit=1000):
         # Bounded cheap discovery. Nonmatches are retained as filtered, not deleted.
-        import jieba
+        import re
         with self.store.connect() as db:
             db.execute('BEGIN IMMEDIATE');w=self._get(db,wid);mark=water(db);cursor=w['discovery_cursor'];scope=json.loads(w['scope_json'])
             upper=min(mark['high_water'],cursor+limit)
             rows=db.execute('SELECT * FROM local_changes WHERE seq>? AND seq<=? ORDER BY seq',(cursor,upper)).fetchall()
             if mark['epoch']!=w['change_epoch'] or mark['high_water']<cursor or len(rows)!=upper-cursor:
                 db.execute('UPDATE workspaces SET gap=1 WHERE id=?',(wid,));return dict(gap=True,scanned=0)
-            words=[t for t in jieba.cut(w['goal']) if len(t.strip())>=2 and t not in ('工作区','整理','报告','资料','聊天','相关','建立','生成','关于','研究','现状','索引')][:20]
+            words=[t for t in re.findall(r'[\w一-鿿]+', w['goal']) if len(t.strip())>=2 and t not in ('工作区','整理','报告','资料','聊天','相关','建立','生成','关于','研究','现状','索引')][:20]
             for r in rows:
                 if not self._event_allowed(r,scope):continue
                 old=db.execute('SELECT state FROM workspace_materials WHERE workspace_id=? AND source_type=? AND source_id=?',(wid,r['source_type'],r['source_id'])).fetchone()
