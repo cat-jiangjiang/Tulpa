@@ -2,7 +2,7 @@
 
 **把 AI Agent 塞进 QQ 群，让它当个群友，而不是当客服。**
 
-这是 [Tulpa](https://github.com/fumingyang2004/Tulpa) 的一个分支。上游做的是本地聊天资料汇聚 + MCP 桥接的桌面产品——导入历史、读微信、Linux 终端版、桌面安装包那一整套。这个分支把这些原样留在仓库里不动，只把其中一条路走通、打磨到能长期跑：
+这是 [Tulpa](https://github.com/fumingyang2004/Tulpa) 的一个分支。上游做的是本地聊天资料汇聚 + MCP 桥接的桌面产品——导入历史、读微信、Linux 终端版、桌面安装包那一整套。这个分支把那套桌面产品整个砍掉，只留水群这一条路，打磨到能长期跑：
 
 > Agent 常驻一个 QQ 群，被叫到就回，没被叫就潜水看别人聊，顺手把群友的脾气记下来。
 
@@ -18,7 +18,7 @@
 | 历史数据 | 需要先导入 | 不需要，直接吃 OneBot 实时事件 |
 | 主要难点 | 授权范围与数据完整性 | 不崩、不失聪、不重复回、不说客服腔 |
 
-`water-group/` 整个子系统是本分支新增的，上游没有。它建立在两个上游组件之上：MCP 后端（`chatlocal/`）和 OneBot 11 网关。人设卡体系与群友记忆引擎由本分支实现。
+`water-group/` 整个子系统是本分支新增的，上游没有。它建立在两个上游组件之上：MCP 后端（`chatlocal/`）和 OneBot 11 网关。人设卡体系与群友记忆引擎由本分支实现。上游的桌面产品壳（GUI、导入、读微信、Linux 终端、安装包）已在本分支删除，不再随仓库分发。
 
 ## 它现在能做什么
 
@@ -39,7 +39,7 @@
 
 - Windows 10 / 11 x64
 - Python 3.13
-- 一个能登录的 QQ 账号，以及一个 OneBot 11 实现（推荐 [SnowLuma](https://github.com/SnowLuma/SnowLuma) 或 NapCat），开 **HTTP + 正向 WebSocket**
+- 一个能登录的 QQ 账号，以及一个 OneBot 11 实现（推荐 [NapCat](https://github.com/NapNeko/NapCatQQ)），开 **HTTP + 正向 WebSocket**
 - 一个愿意干这活的 Agent（能跑命令、能读文件就行）
 
 ### 1. 装依赖
@@ -165,7 +165,7 @@ explorer.exe
 └─ water-group/start-bot.pyw          .pyw，无控制台，幂等
    └─ water-group/daemon/up.py        常驻，兼任总监护
       └─ supervisor.py                拉起并重启下面全部
-         ├─ app.py                    后端 47860 / MCP 48777
+         ├─ server_wg.py               后端 47860 / MCP 48777
          ├─ collector.py              常驻 wait_chat_messages，消息先落盘
          ├─ db_keeper.py              钉住 SQLite WAL 边车文件
          └─ watchdog.py               NapCat / QQ 保活
@@ -277,9 +277,7 @@ water-group/
 ├── memory_commands.py   指令语法解析
 ├── memory_format.py     L1 画像卡渲染
 ├── sync_groups.py       群列表 / 名片同步
-├── sync_personas.py     人格卡同步
 ├── personas/            人格卡
-├── stickers/            表情库
 └── logs/                运行日志（不入库）
 ```
 
@@ -305,7 +303,7 @@ water-group/
 | 现象 | 原因 |
 | --- | --- |
 | 桌面每 20~40 秒弹一个 `QQ has stopped working` | 栈是从带 DLL 注入的沙箱里起的，注入继承到 QQ，delay-load 找不到导出就自杀（`0xC06D007F`）。改用 `start-bot.pyw` 从 explorer 起 |
-| `--stop` 之后重启，NapCat 离线、启动器毫无反应 | `--stop` 没停干净，残留 `app.py` / `collector.py` 占着 47860 / 48777，启动器按端口判幂等直接退出。先 `netstat -ano` 确认端口真空 |
+| `--stop` 之后重启，NapCat 离线、启动器毫无反应 | `--stop` 没停干净，残留 `server_wg.py` / `collector.py` 占着 47860 / 48777，启动器按端口判幂等直接退出。先 `netstat -ano` 确认端口真空 |
 | 反复 `资料读取失败` | SQLite WAL 竞态，`db_keeper.py` 没在跑 |
 | `@ 了没反应`，`--list` 却显示 `[已回]` | 账本边界问题，见上面「连发的 @ 不会丢」 |
 | `@ 了但群里没变蓝` | 三种：名字没解析（留成了文字）、那人不在本群（`--who` 会说）、或者消息走了 `send_chat_reply`。用 `get_msg` 回读，只有 `[CQ:at,qq=...]` 才算数 |
@@ -332,8 +330,8 @@ tail -20 water-group/logs/napcat-watchdog.log  # QQ 是否被反复重注入
 
 本项目自有代码采用 [MIT License](LICENSE)。不是腾讯官方产品，与 QQ、微信及模型服务商没有隶属关系。
 
-- [Tulpa](https://github.com/fumingyang2004/Tulpa)：本分支的上游，MCP 后端与 OneBot 网关来自这里。
-- [SnowLuma](https://github.com/SnowLuma/SnowLuma)：QQ / OneBot 接入，需独立安装并遵循其许可。
+- [Tulpa](https://github.com/fumingyang2004/Tulpa)：本分支的上游，MCP 后端来自这里。
+- [NapCat](https://github.com/NapNeko/NapCatQQ)：OneBot 11 实现，需独立安装并遵循其许可。
 - [qq-bridge](https://github.com/Derpyu520/qq-bridge)：群聊行为与提示词设计参考。
 - [QQ-agent](https://github.com/K0nd1us/QQ-agent)：表情收藏、语义笔记与候选反馈的设计参考。
 
