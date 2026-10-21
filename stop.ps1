@@ -6,4 +6,4 @@ $matches=Get-CimInstance Win32_Process | Where-Object {
 foreach ($process in $matches) {
     Stop-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
 }
-Write-Output 'Project app stopped.'
+Write-Output 'water-group backend stopped.'

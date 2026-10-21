@@ -1,12 +1,14 @@
+#Requires -Version 5.1
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+$env:PYTHONUTF8 = 1
 $env:PYTHONIOENCODING = 'utf-8'
 $env:TEMP = Join-Path $PSScriptRoot '.tmp'
 $env:TMP = $env:TEMP
-$env:GRADIO_ANALYTICS_ENABLED = 'False'
-if ((Test-Path -LiteralPath "$PSScriptRoot\tools\snowluma-v1.14.20\node.exe") -and
-    (Test-Path -LiteralPath "$PSScriptRoot\.env") -and
-    (Select-String -LiteralPath "$PSScriptRoot\.env" -Pattern '^REPLY_ONEBOT_URL\s*=\s*.?http' -Quiet)) {
-    & "$PSScriptRoot\scripts\start-reply-sender.ps1"
-}
+
+# The water-group backend. Reply.py sends QQ messages over OneBot HTTP directly
+# (chatlocal.message_sender.QQSender reads REPLY_ONEBOT_URL/REPLY_ONEBOT_TOKEN
+# from .env), so there is no separate reply-sender process to launch. SnowLuma
+# was removed in Phase 3; the OneBot 11 gateway (NapCat) must already be
+# running with HTTP + forward WebSocket on the ports in water-group/config.json.
 & "$PSScriptRoot\.venv\Scripts\python.exe" "$PSScriptRoot\server_wg.py"
