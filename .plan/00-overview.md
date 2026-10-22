@@ -30,6 +30,7 @@
 | `phase-2-hubs.md` | 低耦合修复、WGStore、WGTools、mcp_access、mcp_routes、voice 云端化（§2.7） |
 | `phase-3-delete-shell.md` | 删除产品壳、scripts 裁剪、人格卡切换、依赖精简 |
 | `phase-4-cleanup.md` | 文档重写、安装脚本、2 周观察、可选新仓库 |
+| `phase-5-multi-group.md` | 多群布局：一群一状态目录 / 一采集器 / 一 Agent（待执行，依据 `doc/MULTI_GROUP_PLAN.md` v2） |
 | `baseline/2026-10-21/` | Phase 0 门禁日志与快照 |
 | `logs/` | 各 Phase 执行日志（可选） |
 
@@ -41,6 +42,7 @@ Phase 0 基线冻结
         └─ Phase 2 三个枢纽（核心风险区）+ §2.7 voice 云端化
              └─ Phase 3 删除产品壳（机械但量大）
                   └─ Phase 4 收尾（可选）
+                       └─ Phase 5 多群布局（独立立项，不依赖 Phase 4 收尾项）
 ```
 
 - **Phase 1 之前不改任何 Python 逻辑**，只加新入口和指向。
